@@ -134,12 +134,16 @@ impl AlacEncoder {
         unsafe { bindings::ALACEncoder_InitializeEncoder(self.void_handle(), output_format.to_c_struct()) }
     }
 
-    pub fn get_magic_cookie_size(&self, num_channels: u32) -> usize {
-        unsafe { bindings::ALACEncoder_GetMagicCookieSize(&self.c_handle as *const bindings::ALACEncoder as *mut bindings::ALACEncoder, num_channels) as usize }
+    pub fn get_magic_cookie_size(num_channels: u32) -> usize {
+        if num_channels > 2 {
+            24 /* ALACSpecificConfig */ + (bindings::kChannelAtomSize as usize) + 12 /* ALACAudioChannelLayout */
+        } else {
+            24 /* ALACSpecificConfig */
+        }
     }
 
     pub fn get_magic_cookie(&self) -> Vec<u8> {
-        let size = self.get_magic_cookie_size(self.c_handle.mNumChannels);
+        let size = AlacEncoder::get_magic_cookie_size(self.c_handle.mNumChannels);
         let mut result = vec![0; size];
 
         unsafe {
