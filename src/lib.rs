@@ -1,5 +1,7 @@
 mod bindings;
 
+use byteorder::{BE, WriteBytesExt};
+
 pub const DEFAULT_FRAMES_PER_PACKET: u32 = bindings::kALACDefaultFramesPerPacket;
 
 // FIXME: Adding some bytes here because the encoder does produce packages that large when encoding random data
@@ -7,6 +9,11 @@ pub const DEFAULT_FRAMES_PER_PACKET: u32 = bindings::kALACDefaultFramesPerPacket
 // 6 channels seems to overflow by four bytes
 // 7 & 8 channels seems to overflow by seven bytes
 pub const MAX_ESCAPE_HEADER_BYTES: usize = bindings::kALACMaxEscapeHeaderBytes as usize + 7;
+
+const PB0: u8 = 40;
+const KB0: u8 = 10;
+const MB0: u8 = 14;
+const MAX_RUN_DEFAULT: u16 = 255;
 
 #[derive(Debug)]
 pub enum Error {
@@ -136,20 +143,48 @@ impl AlacEncoder {
 
     pub fn get_magic_cookie_size(num_channels: u32) -> usize {
         if num_channels > 2 {
-            24 /* ALACSpecificConfig */ + (bindings::kChannelAtomSize as usize) + 12 /* ALACAudioChannelLayout */
+            24 /* ALACSpecificConfig */ + 24 /* ALACAudioChannelLayout */
         } else {
             24 /* ALACSpecificConfig */
         }
     }
 
     pub fn get_magic_cookie(&self) -> Vec<u8> {
-        let size = AlacEncoder::get_magic_cookie_size(self.c_handle.mNumChannels);
-        let mut result = vec![0; size];
+        let mut result = Vec::with_capacity(AlacEncoder::get_magic_cookie_size(self.c_handle.mNumChannels));
 
-        unsafe {
-            let mut in_out_size = size as u32;
-            bindings::ALACEncoder_GetMagicCookie(&self.c_handle as *const bindings::ALACEncoder as *mut bindings::ALACEncoder, result.as_mut_ptr() as *mut std::ffi::c_void, &mut in_out_size);
-            assert_eq!(size, in_out_size as usize);
+        /* ALACSpecificConfig */
+        result.write_u32::<BE>(self.c_handle.mFrameSize).unwrap();
+        result.write_u8(bindings::kALACCompatibleVersion as u8).unwrap();
+        result.write_u8(self.c_handle.mBitDepth as u8).unwrap();
+        result.write_u8(PB0).unwrap();
+        result.write_u8(KB0).unwrap();
+        result.write_u8(MB0).unwrap();
+        result.write_u8(self.c_handle.mNumChannels as u8).unwrap();
+        result.write_u16::<BE>(MAX_RUN_DEFAULT).unwrap();
+        result.write_u32::<BE>(self.c_handle.mMaxFrameBytes).unwrap();
+        result.write_u32::<BE>(self.c_handle.mAvgBitRate).unwrap();
+        result.write_u32::<BE>(self.c_handle.mOutputSampleRate).unwrap();
+
+        /* ALACAudioChannelLayout */
+        if self.c_handle.mNumChannels > 2 {
+            let channel_layout_tag = match self.c_handle.mNumChannels {
+                1 => [1, 0, 100, 0],
+                2 => [2, 0, 101, 0],
+                3 => [3, 0, 113, 0],
+                4 => [4, 0, 116, 0],
+                5 => [5, 0, 120, 0],
+                6 => [6, 0, 124, 0],
+                7 => [7, 0, 142, 0],
+                8 => [8, 0, 127, 0],
+                _ => panic!("Unsuported number of channels"),
+            };
+
+            result.write_u32::<BE>(24).unwrap();
+            result.extend(&['c' as u8, 'h' as u8, 'a' as u8, 'n' as u8]);
+            result.write_u32::<BE>(0).unwrap();
+            result.extend(&channel_layout_tag);
+            result.write_u32::<BE>(0).unwrap();
+            result.write_u32::<BE>(0).unwrap();
         }
 
         result
