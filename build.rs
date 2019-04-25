@@ -22,8 +22,11 @@ fn main() {
         .clang_arg("-Ivendor/codec")
         .clang_args(&["-x", "c++"])
         .clang_arg("-std=c++14")
+        .header("vendor/codec/aglib.h")
         .header("vendor/codec/ALACBitUtilities.h")
         .header("vendor/codec/ALACEncoder.h")
+        .header("vendor/codec/dplib.h")
+        .header("vendor/codec/matrixlib.h")
         .generate()
         .expect("Unable to generate bindings");
 
