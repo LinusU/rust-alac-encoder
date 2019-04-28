@@ -20,6 +20,36 @@ const KB0: u8 = 10;
 const MB0: u8 = 14;
 const MAX_RUN_DEFAULT: u16 = 255;
 
+#[derive(Clone, Copy, Debug)]
+enum ElementType {
+    /// Single Channel Element
+    SCE = 0,
+    /// Channel Pair Element
+    CPE = 1,
+    /// Coupling Channel Element
+    CCE = 2,
+    /// LFE Channel Element
+    LFE = 3,
+    // not yet supported
+    DSE = 4,
+    PCE = 5,
+    FIL = 6,
+    END = 7,
+    /// invalid
+    NIL = 255,
+}
+
+const CHANNEL_MAPS: [[ElementType; MAX_CHANNELS]; MAX_CHANNELS] = [
+    [ElementType::SCE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
+    [ElementType::CPE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
+    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
+    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::SCE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
+    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
+    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::SCE, ElementType::NIL, ElementType::NIL],
+    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::SCE, ElementType::SCE, ElementType::NIL],
+    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::SCE],
+];
+
 #[derive(Debug)]
 pub enum Error {
     Unimplemented,
@@ -126,10 +156,6 @@ pub struct AlacEncoder {
 }
 
 impl AlacEncoder {
-    unsafe fn void_handle(&mut self) -> *mut std::ffi::c_void {
-        &mut self.c_handle as *mut bindings::ALACEncoder as *mut std::ffi::c_void
-    }
-
     pub fn new() -> AlacEncoder {
         AlacEncoder { c_handle: unsafe { bindings::ALACEncoder::new() } }
     }
@@ -239,11 +265,112 @@ impl AlacEncoder {
         result
     }
 
-    pub fn encode(&mut self, input_format: &FormatDescription, output_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> Result<usize, Error> {
-        let mut in_out_size = input_data.len() as i32;
-        let status = unsafe { bindings::ALACEncoder_Encode(self.void_handle(), input_format.to_c_struct(), output_format.to_c_struct(), &input_data[0] as *const u8 as *mut u8, output_data.as_mut_ptr(), &mut in_out_size) };
+    pub fn encode(&mut self, input_format: &FormatDescription, _output_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> Result<usize, Error> {
+        let num_frames = input_data.len() as u32 / input_format.bytes_per_packet;
+        let mut bitstream: bindings::BitBuffer = unsafe { std::mem::uninitialized() };
 
-        if status != 0 { Err(Error::from_status(status)) } else { Ok(in_out_size as usize) }
+        // create a bit buffer structure pointing to our output buffer
+        unsafe { bindings::BitBufferInit(&mut bitstream, output_data.as_mut_ptr(), self.c_handle.mMaxOutputBytes) };
+
+        match input_format.channels_per_frame {
+            1 => {
+                // add 3-bit frame start tag ID_SCE = mono channel & 4-bit element instance tag = 0
+                unsafe { bindings::BitBufferWrite(&mut bitstream, bindings::ELEMENT_TYPE_ID_SCE, 3) };
+                unsafe { bindings::BitBufferWrite(&mut bitstream, 0, 4) };
+
+                // encode mono input buffer
+                self.encode_mono(&mut bitstream, input_data, 1, 0, num_frames)?;
+            },
+            2 => {
+                // add 3-bit frame start tag ID_CPE = channel pair & 4-bit element instance tag = 0
+                unsafe { bindings::BitBufferWrite(&mut bitstream, bindings::ELEMENT_TYPE_ID_CPE, 3) };
+                unsafe { bindings::BitBufferWrite(&mut bitstream, 0, 4) };
+
+                // encode stereo input buffer
+                match self.c_handle.mFastMode {
+                    false => self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames)?,
+                    true => self.encode_stereo_fast(&mut bitstream, input_data, 2, 0, num_frames)?,
+                }
+            },
+            3...8 => {
+                let input_increment = ((self.c_handle.mBitDepth + 7) / 8) as usize;
+                let mut input_position = 0usize;
+
+                let mut channel_index = 0;
+                let mut mono_element_tag = 0;
+                let mut stereo_element_tag = 0;
+                let mut lfe_element_tag = 0;
+
+                while channel_index < input_format.channels_per_frame {
+                    let tag = CHANNEL_MAPS[input_format.channels_per_frame as usize - 1][channel_index as usize];
+
+                    unsafe { bindings::BitBufferWrite(&mut bitstream, tag as u32, 3); }
+
+                    match tag {
+                        ElementType::SCE => {
+                            // mono
+                            unsafe { bindings::BitBufferWrite(&mut bitstream, mono_element_tag, 4); }
+                            let input_size = input_increment * 1;
+                            self.encode_mono(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame, channel_index, num_frames)?;
+                            input_position += input_size;
+                            channel_index += 1;
+                            mono_element_tag += 1;
+                        },
+                        ElementType::CPE => {
+                            // stereo
+                            unsafe { bindings::BitBufferWrite(&mut bitstream, stereo_element_tag, 4); }
+                            let input_size = input_increment * 2;
+                            self.encode_stereo(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame, channel_index, num_frames)?;
+                            input_position += input_size;
+                            channel_index += 2;
+                            stereo_element_tag += 1;
+                        },
+                        ElementType::LFE => {
+                            // LFE channel (subwoofer)
+                            unsafe { bindings::BitBufferWrite(&mut bitstream, lfe_element_tag, 4); }
+                            let input_size = input_increment * 1;
+                            self.encode_mono(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame, channel_index, num_frames)?;
+                            input_position += input_size;
+                            channel_index += 1;
+                            lfe_element_tag += 1;
+                        },
+                        _ => panic!("Unexpected ElementTag {:?}", tag),
+                    }
+                }
+            },
+            _ => {
+                panic!("Unsuported number of channels");
+            },
+        }
+
+        // add 3-bit frame end tag: ID_END
+        unsafe { bindings::BitBufferWrite(&mut bitstream, bindings::ELEMENT_TYPE_ID_END, 3) };
+
+        // byte-align the output data
+        unsafe { bindings::BitBufferByteAlign(&mut bitstream, true as i32) };
+
+        let output_size = unsafe { bindings::BitBufferGetPosition(&mut bitstream) / 8 };
+        assert!(output_size <= self.c_handle.mMaxOutputBytes);
+
+        self.c_handle.mTotalBytesGenerated += output_size;
+        self.c_handle.mMaxFrameBytes = std::cmp::max(self.c_handle.mMaxFrameBytes, output_size);
+
+        Ok(output_size as usize)
+    }
+
+    fn encode_mono(&mut self, bitstream: &mut bindings::BitBuffer, input: &[u8], stride: u32, channel_index: u32, num_samples: u32) -> Result<(), Error> {
+        let status = unsafe { bindings::ALACEncoder_EncodeMono(&mut self.c_handle, bitstream, &input[0] as *const u8 as *mut u8 as *mut std::ffi::c_void, stride, channel_index, num_samples) };
+        if status == 0 { Ok(()) } else { Err(Error::from_status(status)) }
+    }
+
+    fn encode_stereo(&mut self, bitstream: &mut bindings::BitBuffer, input: &[u8], stride: u32, channel_index: u32, num_samples: u32) -> Result<(), Error> {
+        let status = unsafe { bindings::ALACEncoder_EncodeStereo(&mut self.c_handle, bitstream, &input[0] as *const u8 as *mut u8 as *mut std::ffi::c_void, stride, channel_index, num_samples) };
+        if status == 0 { Ok(()) } else { Err(Error::from_status(status)) }
+    }
+
+    fn encode_stereo_fast(&mut self, bitstream: &mut bindings::BitBuffer, input: &[u8], stride: u32, channel_index: u32, num_samples: u32) -> Result<(), Error> {
+        let status = unsafe { bindings::ALACEncoder_EncodeStereoFast(&mut self.c_handle, bitstream, &input[0] as *const u8 as *mut u8 as *mut std::ffi::c_void, stride, channel_index, num_samples) };
+        if status == 0 { Ok(()) } else { Err(Error::from_status(status)) }
     }
 }
 
