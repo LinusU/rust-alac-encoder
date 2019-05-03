@@ -203,7 +203,8 @@ mod tests {
             result.alac_chunks.push(Vec::from(&output[0..size]));
         }
 
-        fs::write(format!("actual_{}", expected), bincode::serialize(&result).unwrap()).unwrap();
+        // NOTE: Uncomment to write out actual result
+        // fs::write(format!("actual_{}", expected), bincode::serialize(&result).unwrap()).unwrap();
 
         let expected: EncodingResult = deserialize(&fs::read(format!("fixtures/{}", expected)).unwrap()).unwrap();
 
