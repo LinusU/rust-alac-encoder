@@ -167,70 +167,126 @@ impl Drop for AlacEncoder {
 
 #[cfg(test)]
 mod tests {
-    use super::{AlacEncoder, FormatDescription, DEFAULT_FRAMES_PER_PACKET, MAX_ESCAPE_HEADER_BYTES};
+    use super::{AlacEncoder, FormatDescription, MAX_ESCAPE_HEADER_BYTES};
 
     use std::fs;
-    use std::io::Read;
 
-    use byteorder::{LE, ReadBytesExt};
+    use bincode::{deserialize};
+    use serde::{Serialize, Deserialize};
 
-    #[test]
-    fn it_works() {
+    #[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
+    struct EncodingResult {
+        magic_cookie: Vec<u8>,
+        alac_chunks: Vec<Vec<u8>>,
+    }
+
+    fn test_case (input: &str, expected: &str, frame_size: u32, channels: u32) {
         let mut encoder = AlacEncoder::new();
-        let output_format = FormatDescription::alac(44100.0, DEFAULT_FRAMES_PER_PACKET, 2);
 
-        encoder.initialize_encoder(&output_format);
+        let input_format = FormatDescription::pcm::<i16>(44100.0, channels);
+        let output_format = FormatDescription::alac(44100.0, frame_size, channels);
 
-        let cookie_size = encoder.get_magic_cookie_size(output_format.channels_per_frame);
-        assert_eq!(cookie_size, 24);
+        encoder.set_frame_size(frame_size);
+        assert_eq!(encoder.initialize_encoder(&output_format), 0);
 
-        let cookie = encoder.get_magic_cookie();
-        assert_eq!(cookie, vec![0, 0, 16, 0, 0, 16, 40, 10, 14, 2, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 172, 68]);
+        let pcm = fs::read(format!("fixtures/{}", input)).unwrap();
+
+        let mut output = vec![0u8; (frame_size as usize * channels as usize * 2) + MAX_ESCAPE_HEADER_BYTES];
+
+        let mut result = EncodingResult {
+            magic_cookie: encoder.get_magic_cookie(),
+            alac_chunks: Vec::new(),
+        };
+
+        for chunk in pcm.chunks(frame_size as usize * channels as usize * 2) {
+            let size = encoder.encode(&input_format, &output_format, &chunk, &mut output).unwrap();
+            result.alac_chunks.push(Vec::from(&output[0..size]));
+        }
+
+        fs::write(format!("actual_{}", expected), bincode::serialize(&result).unwrap()).unwrap();
+
+        let expected: EncodingResult = deserialize(&fs::read(format!("fixtures/{}", expected)).unwrap()).unwrap();
+
+        assert_eq!(result, expected);
     }
 
     #[test]
-    fn it_encodes_fixture() -> Result<(), Box<std::error::Error>> {
-        let mut encoder = AlacEncoder::new();
+    fn it_encodes_sample_352_2() {
+        test_case("sample.pcm", "sample_352_2.bin", 352, 2);
+    }
 
-        let input_format = FormatDescription::pcm::<i16>(44100.0, 2);
-        let output_format = FormatDescription::alac(44100.0, 352, 2);
+    #[test]
+    fn it_encodes_sample_4096_2() {
+        test_case("sample.pcm", "sample_4096_2.bin", 4096, 2);
+    }
 
-        let mut alac = fs::File::open("fixtures/sample.alac")?;
-        let kuki = fs::read("fixtures/sample.kuki")?;
-        let mut pakt = fs::File::open("fixtures/sample.pakt")?;
-        let mut pcm = fs::File::open("fixtures/sample.pcm")?;
+    #[test]
+    fn it_encodes_random_352_2() {
+        test_case("random.pcm", "random_352_2.bin", 352, 2);
+    }
 
-        let packet_count = (pakt.metadata().unwrap().len() as usize) / std::mem::size_of::<u32>();
+    #[test]
+    fn it_encodes_random_352_3() {
+        test_case("random.pcm", "random_352_3.bin", 352, 3);
+    }
 
-        encoder.set_frame_size(352);
-        encoder.initialize_encoder(&output_format);
+    #[test]
+    fn it_encodes_random_352_4() {
+        test_case("random.pcm", "random_352_4.bin", 352, 4);
+    }
 
-        let cookie_size = encoder.get_magic_cookie_size(output_format.channels_per_frame);
-        assert_eq!(cookie_size, kuki.len());
+    #[test]
+    fn it_encodes_random_352_5() {
+        test_case("random.pcm", "random_352_5.bin", 352, 5);
+    }
 
-        let cookie = encoder.get_magic_cookie();
-        assert_eq!(cookie, kuki);
+    #[test]
+    fn it_encodes_random_352_6() {
+        test_case("random.pcm", "random_352_6.bin", 352, 6);
+    }
 
-        let mut input = vec![0u8; 1408];
-        let mut output = vec![0u8; 1408 + MAX_ESCAPE_HEADER_BYTES];
+    #[test]
+    fn it_encodes_random_352_7() {
+        test_case("random.pcm", "random_352_7.bin", 352, 7);
+    }
 
-        for _ in 1..packet_count {
-            let packet_size = pakt.read_u32::<LE>()? as usize;
+    #[test]
+    fn it_encodes_random_352_8() {
+        test_case("random.pcm", "random_352_8.bin", 352, 8);
+    }
 
-            // Read a chunk of PCM input
-            pcm.read_exact(&mut input)?;
+    #[test]
+    fn it_encodes_random_4096_2() {
+        test_case("random.pcm", "random_4096_2.bin", 4096, 2);
+    }
 
-            // Convert that chunk to ALAC
-            let size = encoder.encode(&input_format, &output_format, &input, &mut output)?;
+    #[test]
+    fn it_encodes_random_4096_3() {
+        test_case("random.pcm", "random_4096_3.bin", 4096, 3);
+    }
 
-            // Read the expected bytes
-            let mut expected = vec![0u8; packet_size];
-            alac.read_exact(&mut expected)?;
+    #[test]
+    fn it_encodes_random_4096_4() {
+        test_case("random.pcm", "random_4096_4.bin", 4096, 4);
+    }
 
-            // Compare encoded chunk to expected bytes
-            assert_eq!(output[0..size], expected[0..packet_size]);
-        }
+    #[test]
+    fn it_encodes_random_4096_5() {
+        test_case("random.pcm", "random_4096_5.bin", 4096, 5);
+    }
 
-        Ok(())
+    #[test]
+    fn it_encodes_random_4096_6() {
+        test_case("random.pcm", "random_4096_6.bin", 4096, 6);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_7() {
+        test_case("random.pcm", "random_4096_7.bin", 4096, 7);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_8() {
+        test_case("random.pcm", "random_4096_8.bin", 4096, 8);
     }
 }
