@@ -1,7 +1,12 @@
 mod bindings;
 
 pub const DEFAULT_FRAMES_PER_PACKET: u32 = bindings::kALACDefaultFramesPerPacket;
-pub const MAX_ESCAPE_HEADER_BYTES: usize = bindings::kALACMaxEscapeHeaderBytes as usize;
+
+// FIXME: Adding some bytes here because the encoder does produce packages that large when encoding random data
+// 4 & 5 channels seems to overflow by one byte
+// 6 channels seems to overflow by four bytes
+// 7 & 8 channels seems to overflow by seven bytes
+pub const MAX_ESCAPE_HEADER_BYTES: usize = bindings::kALACMaxEscapeHeaderBytes as usize + 7;
 
 #[derive(Debug)]
 pub enum Error {
