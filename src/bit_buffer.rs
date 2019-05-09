@@ -30,4 +30,12 @@ impl<'a> BitBuffer<'a> {
     pub fn get_position(&self) -> usize {
         unsafe { bindings::BitBufferGetPosition(&self.c_handle as *const bindings::BitBuffer as *mut bindings::BitBuffer) as usize }
     }
+
+    pub fn save_state(&self) -> bindings::BitBuffer {
+        self.c_handle
+    }
+
+    pub fn load_state(&mut self, state: bindings::BitBuffer) {
+        self.c_handle = state;
+    }
 }
