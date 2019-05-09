@@ -180,18 +180,28 @@ mod tests {
         alac_chunks: Vec<Vec<u8>>,
     }
 
-    fn test_case (input: &str, expected: &str, frame_size: u32, channels: u32) {
+    fn test_case (input: &str, expected: &str, frame_size: u32, channels: u32, fast_mode: bool) {
         let mut encoder = AlacEncoder::new();
 
         let input_format = FormatDescription::pcm::<i16>(44100.0, channels);
         let output_format = FormatDescription::alac(44100.0, frame_size, channels);
+
+        if fast_mode {
+            encoder.set_fast_mode(true);
+        }
 
         encoder.set_frame_size(frame_size);
         assert_eq!(encoder.initialize_encoder(&output_format), 0);
 
         let pcm = fs::read(format!("fixtures/{}", input)).unwrap();
 
-        let mut output = vec![0u8; (frame_size as usize * channels as usize * 2) + MAX_ESCAPE_HEADER_BYTES];
+        let mut output = if fast_mode {
+            // FIXME: There seems to be a bug that causes the encoder to write up to 8700 bytes outside the output buffer, when in fast mode
+            // NOTE: Working around this in the tests now, since I hope to fix this in the library when porting it to Rust
+            vec![0u8; (frame_size as usize * channels as usize * 2) + MAX_ESCAPE_HEADER_BYTES + 8700]
+        } else {
+            vec![0u8; (frame_size as usize * channels as usize * 2) + MAX_ESCAPE_HEADER_BYTES]
+        };
 
         let mut result = EncodingResult {
             magic_cookie: encoder.get_magic_cookie(),
@@ -212,82 +222,162 @@ mod tests {
     }
 
     #[test]
-    fn it_encodes_sample_352_2() {
-        test_case("sample.pcm", "sample_352_2.bin", 352, 2);
+    fn it_encodes_sample_352_2_standard() {
+        test_case("sample.pcm", "sample_352_2_standard.bin", 352, 2, false);
     }
 
     #[test]
-    fn it_encodes_sample_4096_2() {
-        test_case("sample.pcm", "sample_4096_2.bin", 4096, 2);
+    fn it_encodes_sample_352_2_fast() {
+        test_case("sample.pcm", "sample_352_2_fast.bin", 352, 2, true);
     }
 
     #[test]
-    fn it_encodes_random_352_2() {
-        test_case("random.pcm", "random_352_2.bin", 352, 2);
+    fn it_encodes_sample_4096_2_standard() {
+        test_case("sample.pcm", "sample_4096_2_standard.bin", 4096, 2, false);
     }
 
     #[test]
-    fn it_encodes_random_352_3() {
-        test_case("random.pcm", "random_352_3.bin", 352, 3);
+    fn it_encodes_sample_4096_2_fast() {
+        test_case("sample.pcm", "sample_4096_2_fast.bin", 4096, 2, true);
     }
 
     #[test]
-    fn it_encodes_random_352_4() {
-        test_case("random.pcm", "random_352_4.bin", 352, 4);
+    fn it_encodes_random_352_2_standard() {
+        test_case("random.pcm", "random_352_2_standard.bin", 352, 2, false);
     }
 
     #[test]
-    fn it_encodes_random_352_5() {
-        test_case("random.pcm", "random_352_5.bin", 352, 5);
+    fn it_encodes_random_352_2_fast() {
+        test_case("random.pcm", "random_352_2_fast.bin", 352, 2, true);
     }
 
     #[test]
-    fn it_encodes_random_352_6() {
-        test_case("random.pcm", "random_352_6.bin", 352, 6);
+    fn it_encodes_random_352_3_standard() {
+        test_case("random.pcm", "random_352_3_standard.bin", 352, 3, false);
     }
 
     #[test]
-    fn it_encodes_random_352_7() {
-        test_case("random.pcm", "random_352_7.bin", 352, 7);
+    fn it_encodes_random_352_3_fast() {
+        test_case("random.pcm", "random_352_3_fast.bin", 352, 3, true);
     }
 
     #[test]
-    fn it_encodes_random_352_8() {
-        test_case("random.pcm", "random_352_8.bin", 352, 8);
+    fn it_encodes_random_352_4_standard() {
+        test_case("random.pcm", "random_352_4_standard.bin", 352, 4, false);
     }
 
     #[test]
-    fn it_encodes_random_4096_2() {
-        test_case("random.pcm", "random_4096_2.bin", 4096, 2);
+    fn it_encodes_random_352_4_fast() {
+        test_case("random.pcm", "random_352_4_fast.bin", 352, 4, true);
     }
 
     #[test]
-    fn it_encodes_random_4096_3() {
-        test_case("random.pcm", "random_4096_3.bin", 4096, 3);
+    fn it_encodes_random_352_5_standard() {
+        test_case("random.pcm", "random_352_5_standard.bin", 352, 5, false);
     }
 
     #[test]
-    fn it_encodes_random_4096_4() {
-        test_case("random.pcm", "random_4096_4.bin", 4096, 4);
+    fn it_encodes_random_352_5_fast() {
+        test_case("random.pcm", "random_352_5_fast.bin", 352, 5, true);
     }
 
     #[test]
-    fn it_encodes_random_4096_5() {
-        test_case("random.pcm", "random_4096_5.bin", 4096, 5);
+    fn it_encodes_random_352_6_standard() {
+        test_case("random.pcm", "random_352_6_standard.bin", 352, 6, false);
     }
 
     #[test]
-    fn it_encodes_random_4096_6() {
-        test_case("random.pcm", "random_4096_6.bin", 4096, 6);
+    fn it_encodes_random_352_6_fast() {
+        test_case("random.pcm", "random_352_6_fast.bin", 352, 6, true);
     }
 
     #[test]
-    fn it_encodes_random_4096_7() {
-        test_case("random.pcm", "random_4096_7.bin", 4096, 7);
+    fn it_encodes_random_352_7_standard() {
+        test_case("random.pcm", "random_352_7_standard.bin", 352, 7, false);
     }
 
     #[test]
-    fn it_encodes_random_4096_8() {
-        test_case("random.pcm", "random_4096_8.bin", 4096, 8);
+    fn it_encodes_random_352_7_fast() {
+        test_case("random.pcm", "random_352_7_fast.bin", 352, 7, true);
+    }
+
+    #[test]
+    fn it_encodes_random_352_8_standard() {
+        test_case("random.pcm", "random_352_8_standard.bin", 352, 8, false);
+    }
+
+    #[test]
+    fn it_encodes_random_352_8_fast() {
+        test_case("random.pcm", "random_352_8_fast.bin", 352, 8, true);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_2_standard() {
+        test_case("random.pcm", "random_4096_2_standard.bin", 4096, 2, false);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_2_fast() {
+        test_case("random.pcm", "random_4096_2_fast.bin", 4096, 2, true);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_3_standard() {
+        test_case("random.pcm", "random_4096_3_standard.bin", 4096, 3, false);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_3_fast() {
+        test_case("random.pcm", "random_4096_3_fast.bin", 4096, 3, true);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_4_standard() {
+        test_case("random.pcm", "random_4096_4_standard.bin", 4096, 4, false);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_4_fast() {
+        test_case("random.pcm", "random_4096_4_fast.bin", 4096, 4, true);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_5_standard() {
+        test_case("random.pcm", "random_4096_5_standard.bin", 4096, 5, false);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_5_fast() {
+        test_case("random.pcm", "random_4096_5_fast.bin", 4096, 5, true);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_6_standard() {
+        test_case("random.pcm", "random_4096_6_standard.bin", 4096, 6, false);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_6_fast() {
+        test_case("random.pcm", "random_4096_6_fast.bin", 4096, 6, true);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_7_standard() {
+        test_case("random.pcm", "random_4096_7_standard.bin", 4096, 7, false);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_7_fast() {
+        test_case("random.pcm", "random_4096_7_fast.bin", 4096, 7, true);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_8_standard() {
+        test_case("random.pcm", "random_4096_8_standard.bin", 4096, 8, false);
+    }
+
+    #[test]
+    fn it_encodes_random_4096_8_fast() {
+        test_case("random.pcm", "random_4096_8_fast.bin", 4096, 8, true);
     }
 }
