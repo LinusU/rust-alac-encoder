@@ -18,8 +18,8 @@ const MAX_SEARCHES: usize = 16;
 const MAX_COEFS: usize = 16;
 
 const PB0: u8 = 40;
-const KB0: u8 = 10;
-const MB0: u8 = 14;
+const MB0: u8 = 10;
+const KB0: u8 = 14;
 const MAX_RUN_DEFAULT: u16 = 255;
 
 #[derive(Clone, Copy, Debug)]
@@ -234,8 +234,8 @@ impl AlacEncoder {
         result.write_u8(bindings::kALACCompatibleVersion as u8).unwrap();
         result.write_u8(self.c_handle.mBitDepth as u8).unwrap();
         result.write_u8(PB0).unwrap();
-        result.write_u8(KB0).unwrap();
         result.write_u8(MB0).unwrap();
+        result.write_u8(KB0).unwrap();
         result.write_u8(self.c_handle.mNumChannels as u8).unwrap();
         result.write_u16::<BE>(MAX_RUN_DEFAULT).unwrap();
         result.write_u32::<BE>(self.c_handle.mMaxFrameBytes).unwrap();
