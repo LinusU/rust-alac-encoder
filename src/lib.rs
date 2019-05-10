@@ -570,8 +570,60 @@ impl AlacEncoder {
     }
 
     fn encode_stereo_escape(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, num_samples: usize) -> Result<(), Error> {
-        let status = unsafe { bindings::ALACEncoder_EncodeStereoEscape(&mut self.c_handle, &mut bitstream.c_handle, &input[0] as *const u8 as *mut u8 as *mut std::ffi::c_void, stride as u32, num_samples as u32) };
-        if status == 0 { Ok(()) } else { Err(Error::from_status(status)) }
+        // flag whether or not this is a partial frame
+        let partial_frame: u8 = if num_samples == (self.c_handle.mFrameSize as usize) { 0 } else { 1 };
+
+        // write bitstream header
+        bitstream.write(0, 12);
+        bitstream.write(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
+        if partial_frame > 0 {
+            bitstream.write(num_samples as u32, 32);
+        }
+
+        // just copy the input data to the output buffer
+        match self.c_handle.mBitDepth {
+            16 => {
+                let input16 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
+
+                for index in (0..(num_samples * stride)).step_by(stride) {
+                    bitstream.write(input16[index + 0] as u32, 16);
+                    bitstream.write(input16[index + 1] as u32, 16);
+                }
+            },
+            20 => {
+                let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.c_handle.mMixBufferU, num_samples) };
+                let mix_buffer_v = unsafe { std::slice::from_raw_parts_mut(self.c_handle.mMixBufferV, num_samples) };
+
+                // mix20() with mixres param = 0 means de-interleave so use it to simplify things
+                unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.c_handle.mMixBufferU, self.c_handle.mMixBufferV, num_samples as i32, 0, 0); }
+                for index in 0..num_samples {
+                    bitstream.write(mix_buffer_u[index] as u32, 20);
+                    bitstream.write(mix_buffer_v[index] as u32, 20);
+                }
+            },
+            24 => {
+                let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.c_handle.mMixBufferU, num_samples) };
+                let mix_buffer_v = unsafe { std::slice::from_raw_parts_mut(self.c_handle.mMixBufferV, num_samples) };
+
+                // mix24() with mixres param = 0 means de-interleave so use it to simplify things
+                unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.c_handle.mMixBufferU, self.c_handle.mMixBufferV, num_samples as i32, 0, 0, self.c_handle.mShiftBufferUV, 0); }
+                for index in 0..num_samples {
+                    bitstream.write(mix_buffer_u[index] as u32, 24);
+                    bitstream.write(mix_buffer_v[index] as u32, 24);
+                }
+            },
+            32 => {
+                let input32 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
+
+                for index in (0..(num_samples * stride)).step_by(stride) {
+                    bitstream.write(input32[index + 0] as u32, 32);
+                    bitstream.write(input32[index + 1] as u32, 32);
+                }
+            },
+            _ => panic!("Invalid mBitDepth"),
+        }
+
+        Ok(())
     }
 
     fn encode_stereo(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) -> Result<(), Error> {
