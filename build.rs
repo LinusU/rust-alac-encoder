@@ -6,11 +6,9 @@ use bindgen;
 
 fn main() {
     cc::Build::new()
-        .cpp(true)
         .file("vendor/codec/ag_dec.c")
         .file("vendor/codec/ag_enc.c")
         .file("vendor/codec/ALACBitUtilities.c")
-        .file("vendor/codec/ALACEncoder.cpp")
         .file("vendor/codec/dp_enc.c")
         .file("vendor/codec/EndianPortable.c")
         .file("vendor/codec/matrix_enc.c")
@@ -20,11 +18,9 @@ fn main() {
 
     let bindings = bindgen::Builder::default()
         .clang_arg("-Ivendor/codec")
-        .clang_args(&["-x", "c++"])
-        .clang_arg("-std=c++14")
         .header("vendor/codec/aglib.h")
+        .header("vendor/codec/ALACAudioTypes.h")
         .header("vendor/codec/ALACBitUtilities.h")
-        .header("vendor/codec/ALACEncoder.h")
         .header("vendor/codec/dplib.h")
         .header("vendor/codec/matrixlib.h")
         .generate()
