@@ -145,25 +145,13 @@ impl FormatDescription {
             reserved: 0,
         }
     }
-
-    fn to_c_struct(&self) -> bindings::AudioFormatDescription {
-        bindings::AudioFormatDescription {
-            mSampleRate: self.sample_rate,
-            mFormatID: self.format_id,
-            mFormatFlags: self.format_flags,
-            mBytesPerPacket: self.bytes_per_packet,
-            mFramesPerPacket: self.frames_per_packet,
-            mBytesPerFrame: self.bytes_per_frame,
-            mChannelsPerFrame: self.channels_per_frame,
-            mBitsPerChannel: self.bits_per_channel,
-            mReserved: self.reserved,
-        }
-    }
 }
 
 pub struct AlacEncoder {
     // ALAC encoder parameters
     bit_depth: i16,
+    // FIXME: Why is this also needed? and why is it zero? What happens if it's e.g. 16?
+    bits_per_channel: usize,
 
     // encoding state
     last_mix_res: [i16; 8],
@@ -191,87 +179,81 @@ pub struct AlacEncoder {
 }
 
 impl AlacEncoder {
-    pub fn new() -> AlacEncoder {
+    pub fn new(output_format: &FormatDescription) -> AlacEncoder {
+        let bit_depth = match output_format.format_flags {
+            1 => 16,
+            2 => 20,
+            3 => 24,
+            4 => 32,
+            _ => panic!("Invalid format_flags: {}", output_format.format_flags),
+        };
+
+        let frame_size = output_format.frames_per_packet as usize;
+        let num_channels = output_format.channels_per_frame;
+        let max_output_bytes = frame_size * (num_channels as usize) * ((10 + MAX_SAMPLE_SIZE) / 8) + 1;
+
+        let mut coefs_u = [[[0; 16]; 16]; 8];
+        let mut coefs_v = [[[0; 16]; 16]; 8];
+
+        unsafe fn calloc(nobj: usize, size: usize) -> *mut std::ffi::c_void {
+            let result = libc::calloc(nobj, size);
+            if result.is_null() { panic!("Failed to allocate {} bytes of memory", size); }
+            result
+        }
+
+        // allocate mix buffers
+        let mix_buffer_u = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
+        let mix_buffer_v = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
+
+        // allocate dynamic predictor buffers
+        let predictor_u = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
+        let predictor_v = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
+
+        // allocate combined shift buffer
+        let shift_buffer_uv = unsafe { calloc(frame_size * 2 * std::mem::size_of::<u16>(), 1) as *mut u16 };
+
+        // allocate work buffer for search loop
+        let work_buffer = unsafe { calloc(max_output_bytes, 1) as *mut u8 };
+
+        // initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
+        for channel in 0..(num_channels as usize) {
+            for search in 0..MAX_SEARCHES {
+                unsafe {
+                    bindings::init_coefs(&mut coefs_u[channel][search][0], bindings::DENSHIFT_DEFAULT, MAX_COEFS as i32);
+                    bindings::init_coefs(&mut coefs_v[channel][search][0], bindings::DENSHIFT_DEFAULT, MAX_COEFS as i32);
+                }
+            }
+        }
+
         AlacEncoder {
             // ALAC encoder parameters
-            bit_depth: 0,
+            bit_depth: bit_depth,
+            bits_per_channel: output_format.bits_per_channel as usize,
 
             // encoding state
             last_mix_res: [0; 8],
 
             // encoding buffers
-            mix_buffer_u: std::ptr::null_mut(),
-            mix_buffer_v: std::ptr::null_mut(),
-            predictor_u: std::ptr::null_mut(),
-            predictor_v: std::ptr::null_mut(),
-            shift_buffer_uv: std::ptr::null_mut(),
-            work_buffer: std::ptr::null_mut(),
+            mix_buffer_u: mix_buffer_u,
+            mix_buffer_v: mix_buffer_v,
+            predictor_u: predictor_u,
+            predictor_v: predictor_v,
+            shift_buffer_uv: shift_buffer_uv,
+            work_buffer: work_buffer,
 
             // per-channel coefficients buffers
-            coefs_u: [[[0; 16]; 16]; 8],
-            coefs_v: [[[0; 16]; 16]; 8],
+            coefs_u: coefs_u,
+            coefs_v: coefs_v,
 
             // encoding statistics
             total_bytes_generated: 0,
             avg_bit_rate: 0,
             max_frame_bytes: 0,
-            frame_size: DEFAULT_FRAME_SIZE,
-            max_output_bytes: 0,
-            num_channels: 0,
-            output_sample_rate: 0,
+            frame_size: frame_size,
+            max_output_bytes: max_output_bytes,
+            num_channels: num_channels,
+            output_sample_rate: output_format.sample_rate as u32,
         }
-    }
-
-    pub fn set_frame_size(&mut self, frame_size: u32) {
-        self.frame_size = frame_size as usize;
-    }
-
-    pub fn initialize_encoder(&mut self, output_format: &FormatDescription) -> Result<(), Error> {
-        self.output_sample_rate = output_format.sample_rate as u32;
-        self.num_channels = output_format.channels_per_frame;
-
-        match output_format.format_flags {
-            1 => { self.bit_depth = 16; },
-            2 => { self.bit_depth = 20; },
-            3 => { self.bit_depth = 24; },
-            4 => { self.bit_depth = 32; },
-            _ => {},
-        }
-
-        unsafe fn calloc(nobj: usize, size: usize) -> Result<*mut std::ffi::c_void, Error> {
-            let result = libc::calloc(nobj, size);
-            if result.is_null() { Err(Error::MemFull) } else { Ok(result) }
-        }
-
-        self.last_mix_res = unsafe { std::mem::zeroed() };
-
-        self.max_output_bytes = self.frame_size * (self.num_channels as usize) * ((10 + MAX_SAMPLE_SIZE) / 8) + 1;
-
-        // allocate mix buffers
-        self.mix_buffer_u = unsafe { calloc(self.frame_size * std::mem::size_of::<i32>(), 1)? as *mut i32 };
-        self.mix_buffer_v = unsafe { calloc(self.frame_size * std::mem::size_of::<i32>(), 1)? as *mut i32 };
-
-        // allocate dynamic predictor buffers
-        self.predictor_u = unsafe { calloc(self.frame_size * std::mem::size_of::<i32>(), 1)? as *mut i32 };
-        self.predictor_v = unsafe { calloc(self.frame_size * std::mem::size_of::<i32>(), 1)? as *mut i32 };
-
-        // allocate combined shift buffer
-        self.shift_buffer_uv = unsafe { calloc(self.frame_size * 2 * std::mem::size_of::<u16>(), 1)? as *mut u16 };
-
-        // allocate work buffer for search loop
-        self.work_buffer = unsafe { calloc(self.max_output_bytes, 1)? as *mut u8 };
-
-        // initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
-        for channel in 0..(self.num_channels as usize) {
-            for search in 0..MAX_SEARCHES {
-                unsafe {
-                    bindings::init_coefs(&mut self.coefs_u[channel][search][0], bindings::DENSHIFT_DEFAULT, MAX_COEFS as i32);
-                    bindings::init_coefs(&mut self.coefs_v[channel][search][0], bindings::DENSHIFT_DEFAULT, MAX_COEFS as i32);
-                }
-            }
-        }
-
-        Ok(())
     }
 
     pub fn get_magic_cookie_size(num_channels: u32) -> usize {
@@ -323,10 +305,10 @@ impl AlacEncoder {
         result
     }
 
-    pub fn encode(&mut self, input_format: &FormatDescription, output_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> Result<usize, Error> {
+    pub fn encode(&mut self, input_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> Result<usize, Error> {
         let num_frames = input_data.len() as u32 / input_format.bytes_per_packet;
 
-        let minimum_buffer_size = (self.frame_size * (self.num_channels as usize) * (((10 + output_format.bits_per_channel as usize) / 8) + 1)) + MAX_ESCAPE_HEADER_BYTES;
+        let minimum_buffer_size = (self.frame_size * (self.num_channels as usize) * (((10 + self.bits_per_channel) / 8) + 1)) + MAX_ESCAPE_HEADER_BYTES;
         assert!(output_data.len() >= minimum_buffer_size);
 
         // create a bit buffer structure pointing to our output buffer
@@ -948,13 +930,10 @@ mod tests {
     }
 
     fn test_case (input: &str, expected: &str, frame_size: u32, channels: u32) {
-        let mut encoder = AlacEncoder::new();
-
         let input_format = FormatDescription::pcm::<i16>(44100.0, channels);
         let output_format = FormatDescription::alac(44100.0, frame_size, channels);
 
-        encoder.set_frame_size(frame_size);
-        encoder.initialize_encoder(&output_format).unwrap();
+        let mut encoder = AlacEncoder::new(&output_format);
 
         let pcm = fs::read(format!("fixtures/{}", input)).unwrap();
 
@@ -966,7 +945,7 @@ mod tests {
         };
 
         for chunk in pcm.chunks(frame_size as usize * channels as usize * 2) {
-            let size = encoder.encode(&input_format, &output_format, &chunk, &mut output).unwrap();
+            let size = encoder.encode(&input_format, &chunk, &mut output).unwrap();
             result.alac_chunks.push(Vec::from(&output[0..size]));
         }
 
