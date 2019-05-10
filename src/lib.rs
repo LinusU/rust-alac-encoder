@@ -169,10 +169,6 @@ impl AlacEncoder {
         AlacEncoder { c_handle: unsafe { bindings::ALACEncoder::new() } }
     }
 
-    pub fn set_fast_mode(&mut self, fast_mode: bool) {
-        self.c_handle.mFastMode = fast_mode;
-    }
-
     pub fn set_frame_size(&mut self, frame_size: u32) {
         self.c_handle.mFrameSize = frame_size;
     }
@@ -299,10 +295,7 @@ impl AlacEncoder {
                 bitstream.write(0, 4);
 
                 // encode stereo input buffer
-                match self.c_handle.mFastMode {
-                    false => self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames as usize)?,
-                    true => self.encode_stereo_fast(&mut bitstream, input_data, 2, 0, num_frames)?,
-                }
+                self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames as usize)?;
             },
             3...8 => {
                 let input_increment = ((self.c_handle.mBitDepth + 7) / 8) as usize;
@@ -865,11 +858,6 @@ impl AlacEncoder {
         }
 
         Ok(())
-    }
-
-    fn encode_stereo_fast(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: u32, channel_index: u32, num_samples: u32) -> Result<(), Error> {
-        let status = unsafe { bindings::ALACEncoder_EncodeStereoFast(&mut self.c_handle, &mut bitstream.c_handle, &input[0] as *const u8 as *mut u8 as *mut std::ffi::c_void, stride, channel_index, num_samples) };
-        if status == 0 { Ok(()) } else { Err(Error::from_status(status)) }
     }
 }
 
