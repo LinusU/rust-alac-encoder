@@ -41,10 +41,10 @@ enum ElementType {
     /// LFE Channel Element
     LFE = 3,
     // not yet supported
-    DSE = 4,
-    PCE = 5,
-    FIL = 6,
-    END = 7,
+    // DSE = 4,
+    // PCE = 5,
+    // FIL = 6,
+    // END = 7,
     /// invalid
     NIL = 255,
 }
