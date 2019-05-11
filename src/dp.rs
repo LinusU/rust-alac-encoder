@@ -1,3 +1,5 @@
+//! Dynamic Predictor
+
 use std::num::Wrapping;
 
 const AINIT: i32 = 38;
