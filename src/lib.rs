@@ -180,6 +180,8 @@ pub struct AlacEncoder {
 
 impl AlacEncoder {
     pub fn new(output_format: &FormatDescription) -> AlacEncoder {
+        assert_eq!(output_format.format_id, bindings::kALACFormatAppleLossless);
+
         let bit_depth = match output_format.format_flags {
             1 => 16,
             2 => 20,
