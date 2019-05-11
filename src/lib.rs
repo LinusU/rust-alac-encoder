@@ -464,12 +464,12 @@ impl AlacEncoder {
         for num_u in (min_u..max_u).step_by(4) {
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
 
-            let dilate = 32;
+            let dilate = 32usize;
             for _ in 0..7 {
                 unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples / dilate) as i32, coefs_u[num_u - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
             }
 
-            let dilate = 8;
+            let dilate = 8usize;
             unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples / dilate) as i32, coefs_u[num_u - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
 
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT); }
@@ -667,7 +667,6 @@ impl AlacEncoder {
         let num_v: u32 = DEFAULT_NUM_UV;
         let mode: u32 = 0;
         let pb_factor: u32 = 4;
-        let mut dilate: u32 = 8;
 
         let mut min_bits: u32 = 1 << 31;
         let mut best_res: i32 = self.last_mix_res[channel_index] as i32;
@@ -677,21 +676,23 @@ impl AlacEncoder {
         let mut bits2: u32 = 0;
 
         for mix_res in 0..=max_res {
+            let dilate = 8usize;
+
             // mix the stereo inputs
             match self.bit_depth {
                 16 => {
-                    unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res); }
+                    unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res); }
                 },
                 20 => {
-                    unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res); }
+                    unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res); }
                 },
                 24 => {
                     // includes extraction of shifted-off bytes
-                    unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
+                    unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
                 },
                 32 => {
                     // includes extraction of shifted-off bytes
-                    unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
+                    unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
                 },
                 _ => panic!("Invalid mBitDepth"),
             }
@@ -699,16 +700,16 @@ impl AlacEncoder {
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
 
             // run the dynamic predictors
-            unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
-            unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+            unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples / dilate) as i32, coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+            unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_v.as_mut_ptr(), (num_samples / dilate) as i32, coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
 
             // run the lossless compressor on each channel
-            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples as u32) / (dilate as u32), (num_samples as u32) / (dilate as u32), bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits1) };
+            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT); }
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits1) };
             if status != 0 { return Err(Error::from_status(status)); }
 
-            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples as u32) / (dilate as u32), (num_samples as u32) / (dilate as u32), bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits2) };
+            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT); }
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits2) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             // look for best match
@@ -749,31 +750,30 @@ impl AlacEncoder {
         for num_uv in (MIN_UV..=MAX_UV).step_by(4) {
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
 
-            // let dilate: u32 = 32;
-            dilate = 32;
+            let dilate = 32usize;
 
             for _ in 0..8 {
-                unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_u[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
-                unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_v[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples / dilate) as i32, coefs_u[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_v.as_mut_ptr(), (num_samples / dilate) as i32, coefs_v[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
             }
 
-            dilate = 8;
+            let dilate = 8usize;
 
-            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, (num_samples as u32) / dilate, (num_samples as u32) / dilate, bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits1) };
+            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT); }
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits1) };
             if status != 0 { return Err(Error::from_status(status)); }
 
-            if (bits1 * dilate + 16 * num_uv) < min_bits1 {
-                min_bits1 = bits1 * dilate + 16 * num_uv;
+            if (bits1 * (dilate as u32) + 16 * num_uv) < min_bits1 {
+                min_bits1 = bits1 * (dilate as u32) + 16 * num_uv;
                 num_u = num_uv;
             }
 
-            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, (num_samples as u32) / dilate, (num_samples as u32) / dilate, bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits2) };
+            unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT); }
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits2) };
             if status != 0 { return Err(Error::from_status(status)); }
 
-            if (bits2 * dilate + 16 * num_uv) < min_bits2 {
-                min_bits2 = bits2 * dilate + 16 * num_uv;
+            if (bits2 * (dilate as u32) + 16 * num_uv) < min_bits2 {
+                min_bits2 = bits2 * (dilate as u32) + 16 * num_uv;
                 num_v = num_uv;
             }
         }
