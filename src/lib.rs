@@ -1,5 +1,6 @@
 mod bindings;
 mod bit_buffer;
+mod dp;
 
 use byteorder::{BE, WriteBytesExt};
 use bit_buffer::BitBuffer;
@@ -159,8 +160,8 @@ pub struct AlacEncoder {
     work_buffer: Vec<u8>,
 
     // per-channel coefficients buffers
-    coefs_u: [[[i16; 16]; 16]; 8],
-    coefs_v: [[[i16; 16]; 16]; 8],
+    coefs_u: [[[i16; MAX_COEFS]; MAX_SEARCHES]; MAX_CHANNELS],
+    coefs_v: [[[i16; MAX_COEFS]; MAX_SEARCHES]; MAX_CHANNELS],
 
     // encoding statistics
     total_bytes_generated: usize,
@@ -188,8 +189,8 @@ impl AlacEncoder {
         let num_channels = output_format.channels_per_frame;
         let max_output_bytes = frame_size * (num_channels as usize) * ((10 + MAX_SAMPLE_SIZE) / 8) + 1;
 
-        let mut coefs_u = [[[0; 16]; 16]; 8];
-        let mut coefs_v = [[[0; 16]; 16]; 8];
+        let mut coefs_u = [[[0i16; MAX_COEFS]; MAX_SEARCHES]; MAX_CHANNELS];
+        let mut coefs_v = [[[0i16; MAX_COEFS]; MAX_SEARCHES]; MAX_CHANNELS];
 
         // allocate mix buffers
         let mix_buffer_u = vec![0i32; frame_size];
@@ -208,10 +209,8 @@ impl AlacEncoder {
         // initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
         for channel in 0..(num_channels as usize) {
             for search in 0..MAX_SEARCHES {
-                unsafe {
-                    bindings::init_coefs(&mut coefs_u[channel][search][0], bindings::DENSHIFT_DEFAULT, MAX_COEFS as i32);
-                    bindings::init_coefs(&mut coefs_v[channel][search][0], bindings::DENSHIFT_DEFAULT, MAX_COEFS as i32);
-                }
+                dp::init_coefs(&mut coefs_u[channel][search], bindings::DENSHIFT_DEFAULT);
+                dp::init_coefs(&mut coefs_v[channel][search], bindings::DENSHIFT_DEFAULT);
             }
         }
 
