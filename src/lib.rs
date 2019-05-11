@@ -111,10 +111,8 @@ pub struct FormatDescription {
     format_flags: u32,
     bytes_per_packet: u32,
     frames_per_packet: u32,
-    bytes_per_frame: u32,
     channels_per_frame: u32,
     bits_per_channel: u32,
-    reserved: u32,
 }
 
 impl FormatDescription {
@@ -125,10 +123,8 @@ impl FormatDescription {
             format_flags: T::flags(),
             bytes_per_packet: channels * T::bytes(),
             frames_per_packet: 1,
-            bytes_per_frame: channels * T::bytes(),
             channels_per_frame: channels,
             bits_per_channel: T::bits(),
-            reserved: 0,
         }
     }
 
@@ -139,10 +135,8 @@ impl FormatDescription {
             format_flags: 1,
             bytes_per_packet: 0,
             frames_per_packet,
-            bytes_per_frame: 0,
             channels_per_frame: channels,
             bits_per_channel: 0,
-            reserved: 0,
         }
     }
 }
