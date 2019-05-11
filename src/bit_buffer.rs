@@ -31,6 +31,10 @@ impl<'a> BitBuffer<'a> {
         unsafe { bindings::BitBufferGetPosition(&self.c_handle as *const bindings::BitBuffer as *mut bindings::BitBuffer) as usize }
     }
 
+    pub fn advance(&mut self, num_bits: u32) {
+        unsafe { bindings::BitBufferAdvance(&mut self.c_handle, num_bits); }
+    }
+
     pub fn save_state(&self) -> bindings::BitBuffer {
         self.c_handle
     }

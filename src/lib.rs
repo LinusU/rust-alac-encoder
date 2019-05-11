@@ -456,8 +456,6 @@ impl AlacEncoder {
         let mut min_bits: u32 = 1 << 31;
         let mut best_u = min_u;
 
-        let mut bits1: u32 = 0;
-
         for num_u in (min_u..max_u).step_by(4) {
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
 
@@ -470,8 +468,7 @@ impl AlacEncoder {
             dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits1) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             let num_bits = ((dilate as u32) * bits1) + (16 * num_u as u32);
             if num_bits < min_bits {
@@ -519,8 +516,7 @@ impl AlacEncoder {
 
             // do lossless compression
             let ag_params = AgParams::new_standard(num_samples as u32, num_samples as u32);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_u.as_mut_ptr(), &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits1) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            ag::dyn_comp(&ag_params, &self.predictor_u, bitstream, num_samples, chan_bits as usize);
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
             // chuck it and do an escape packet
@@ -668,9 +664,6 @@ impl AlacEncoder {
         let mut min_bits: u32 = 1 << 31;
         let mut best_res: i32 = self.last_mix_res[channel_index] as i32;
 
-        let mut bits1: u32 = 0;
-        let mut bits2: u32 = 0;
-
         for mix_res in 0..=max_res {
             let dilate = 8usize;
 
@@ -701,12 +694,10 @@ impl AlacEncoder {
 
             // run the lossless compressor on each channel
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits1) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits2) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            let bits2 = ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             // look for best match
             if (bits1 + bits2) < min_bits {
@@ -756,8 +747,7 @@ impl AlacEncoder {
             let dilate = 8usize;
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits1) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             if (bits1 * (dilate as u32) + 16 * num_uv) < min_bits1 {
                 min_bits1 = bits1 * (dilate as u32) + 16 * num_uv;
@@ -765,8 +755,7 @@ impl AlacEncoder {
             }
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits2) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            let bits2 = ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             if (bits2 * (dilate as u32) + 16 * num_uv) < min_bits2 {
                 min_bits2 = bits2 * (dilate as u32) + 16 * num_uv;
@@ -832,8 +821,7 @@ impl AlacEncoder {
             }
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32, bindings::MAX_RUN_DEFAULT);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_u.as_mut_ptr(), &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits1) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            ag::dyn_comp(&ag_params, &self.predictor_u, bitstream, num_samples, chan_bits as usize);
 
             // run the dynamic predictor and lossless compression for the "right" channel
             if mode == 0 {
@@ -844,8 +832,7 @@ impl AlacEncoder {
             }
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32, bindings::MAX_RUN_DEFAULT);
-            let status = unsafe { bindings::dyn_comp(ag_params.c_handle(), self.predictor_v.as_mut_ptr(), &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits2) };
-            if status != 0 { return Err(Error::from_status(status)); }
+            ag::dyn_comp(&ag_params, &self.predictor_v, bitstream, num_samples, chan_bits as usize);
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
             // chuck it and do an escape packet
