@@ -151,12 +151,12 @@ pub struct AlacEncoder {
     last_mix_res: [i16; 8],
 
     // encoding buffers
-    mix_buffer_u: *mut i32,
-    mix_buffer_v: *mut i32,
-    predictor_u: *mut i32,
-    predictor_v: *mut i32,
-    shift_buffer_uv: *mut u16,
-    work_buffer: *mut u8,
+    mix_buffer_u: Vec<i32>,
+    mix_buffer_v: Vec<i32>,
+    predictor_u: Vec<i32>,
+    predictor_v: Vec<i32>,
+    shift_buffer_uv: Vec<u16>,
+    work_buffer: Vec<u8>,
 
     // per-channel coefficients buffers
     coefs_u: [[[i16; 16]; 16]; 8],
@@ -191,25 +191,19 @@ impl AlacEncoder {
         let mut coefs_u = [[[0; 16]; 16]; 8];
         let mut coefs_v = [[[0; 16]; 16]; 8];
 
-        unsafe fn calloc(nobj: usize, size: usize) -> *mut std::ffi::c_void {
-            let result = libc::calloc(nobj, size);
-            if result.is_null() { panic!("Failed to allocate {} bytes of memory", size); }
-            result
-        }
-
         // allocate mix buffers
-        let mix_buffer_u = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
-        let mix_buffer_v = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
+        let mix_buffer_u = vec![0i32; frame_size];
+        let mix_buffer_v = vec![0i32; frame_size];
 
         // allocate dynamic predictor buffers
-        let predictor_u = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
-        let predictor_v = unsafe { calloc(frame_size * std::mem::size_of::<i32>(), 1) as *mut i32 };
+        let predictor_u = vec![0i32; frame_size];
+        let predictor_v = vec![0i32; frame_size];
 
         // allocate combined shift buffer
-        let shift_buffer_uv = unsafe { calloc(frame_size * 2 * std::mem::size_of::<u16>(), 1) as *mut u16 };
+        let shift_buffer_uv = vec![0u16; frame_size * 2];
 
         // allocate work buffer for search loop
-        let work_buffer = unsafe { calloc(max_output_bytes, 1) as *mut u8 };
+        let work_buffer = vec![0u8; max_output_bytes];
 
         // initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
         for channel in 0..(num_channels as usize) {
@@ -425,36 +419,31 @@ impl AlacEncoder {
             16 => {
                 // convert 16-bit data to 32-bit for predictor
                 let input16 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
-                let output32 = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_u, num_samples) };
                 for index in 0..num_samples {
-                    output32[index] = input16[index * stride] as i32;
+                    self.mix_buffer_u[index] = input16[index * stride] as i32;
                 }
             },
             20 => {
                 // convert 20-bit data to 32-bit for predictor
-                unsafe { bindings::copy20ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, num_samples as i32); }
+                unsafe { bindings::copy20ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
             },
             24 =>  {
                 // convert 24-bit data to 32-bit for the predictor and extract the shifted off byte(s)
-                unsafe { bindings::copy24ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, num_samples as i32); }
-                let shift_buffer_uv = unsafe { std::slice::from_raw_parts_mut(self.shift_buffer_uv, num_samples) };
-                let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_u, num_samples) };
+                unsafe { bindings::copy24ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
                 for index in 0..num_samples {
-                    shift_buffer_uv[index] = ((mix_buffer_u[index] as u32) & mask) as u16;
-                    mix_buffer_u[index] >>= shift;
+                    self.shift_buffer_uv[index] = ((self.mix_buffer_u[index] as u32) & mask) as u16;
+                    self.mix_buffer_u[index] >>= shift;
                 }
             },
             32 => {
                 // just copy the 32-bit input data for the predictor and extract the shifted off byte(s)
                 let input32 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
-                let shift_buffer_uv = unsafe { std::slice::from_raw_parts_mut(self.shift_buffer_uv, num_samples) };
-                let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_u, num_samples) };
 
                 for index in 0..num_samples {
                     let val = input32[index * stride];
 
-                    shift_buffer_uv[index] = ((val as u32) & mask) as u16;
-                    mix_buffer_u[index] = val >> shift;
+                    self.shift_buffer_uv[index] = ((val as u32) & mask) as u16;
+                    self.mix_buffer_u[index] = val >> shift;
                 }
             },
             _ => panic!("Invalid mBitDepth"),
@@ -473,18 +462,18 @@ impl AlacEncoder {
         let mut bits1: u32 = 0;
 
         for num_u in (min_u..max_u).step_by(4) {
-            let mut work_bits = BitBuffer::new(unsafe { std::slice::from_raw_parts_mut(self.work_buffer, self.max_output_bytes) });
+            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
 
             let dilate = 32;
             for _ in 0..7 {
-                unsafe { bindings::pc_block(self.mix_buffer_u, self.predictor_u, (num_samples / dilate) as i32, coefs_u[num_u - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples / dilate) as i32, coefs_u[num_u - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
             }
 
             let dilate = 8;
-            unsafe { bindings::pc_block(self.mix_buffer_u, self.predictor_u, (num_samples / dilate) as i32, coefs_u[num_u - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+            unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples / dilate) as i32, coefs_u[num_u - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
 
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u, &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits1) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples / dilate) as i32, chan_bits as i32, &mut bits1) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             let num_bits = ((dilate as u32) * bits1) + (16 * num_u as u32);
@@ -523,19 +512,17 @@ impl AlacEncoder {
 
             // if shift active, write the interleaved shift buffers
             if bytes_shifted != 0 {
-                let shift_buffer_uv = unsafe { std::slice::from_raw_parts_mut(self.shift_buffer_uv, num_samples) };
-
                 for index in 0..num_samples {
-                    bitstream.write(shift_buffer_uv[index] as u32, shift);
+                    bitstream.write(self.shift_buffer_uv[index] as u32, shift);
                 }
             }
 
             // run the dynamic predictor with the best result
-            unsafe { bindings::pc_block(self.mix_buffer_u, self.predictor_u, num_samples as i32, coefs_u[best_u - 1].as_mut_ptr(), best_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+            unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), num_samples as i32, coefs_u[best_u - 1].as_mut_ptr(), best_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
 
             // do lossless compression
             unsafe { bindings::set_standard_ag_params(&mut ag_params, num_samples as u32, num_samples as u32); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u, &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits1) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits1) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
@@ -566,18 +553,16 @@ impl AlacEncoder {
                 },
                 20 => {
                     // convert 20-bit data to 32-bit for simplicity
-                    let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_u, num_samples) };
-                    unsafe { bindings::copy20ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, num_samples as i32); }
+                    unsafe { bindings::copy20ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
                     for index in 0..num_samples {
-                        bitstream.write(mix_buffer_u[index] as u32, 20);
+                        bitstream.write(self.mix_buffer_u[index] as u32, 20);
                     }
                 },
                 24 => {
                     // convert 24-bit data to 32-bit for simplicity
-                    let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_u, num_samples) };
-                    unsafe { bindings::copy24ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, num_samples as i32); }
+                    unsafe { bindings::copy24ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
                     for index in 0..num_samples {
-                        bitstream.write(mix_buffer_u[index] as u32, 24);
+                        bitstream.write(self.mix_buffer_u[index] as u32, 24);
                     }
                 },
                 32 => {
@@ -615,25 +600,19 @@ impl AlacEncoder {
                 }
             },
             20 => {
-                let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_u, num_samples) };
-                let mix_buffer_v = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_v, num_samples) };
-
                 // mix20() with mixres param = 0 means de-interleave so use it to simplify things
-                unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, self.mix_buffer_v, num_samples as i32, 0, 0); }
+                unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, 0, 0); }
                 for index in 0..num_samples {
-                    bitstream.write(mix_buffer_u[index] as u32, 20);
-                    bitstream.write(mix_buffer_v[index] as u32, 20);
+                    bitstream.write(self.mix_buffer_u[index] as u32, 20);
+                    bitstream.write(self.mix_buffer_v[index] as u32, 20);
                 }
             },
             24 => {
-                let mix_buffer_u = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_u, num_samples) };
-                let mix_buffer_v = unsafe { std::slice::from_raw_parts_mut(self.mix_buffer_v, num_samples) };
-
                 // mix24() with mixres param = 0 means de-interleave so use it to simplify things
-                unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, self.mix_buffer_v, num_samples as i32, 0, 0, self.shift_buffer_uv, 0); }
+                unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, 0, 0, self.shift_buffer_uv.as_mut_ptr(), 0); }
                 for index in 0..num_samples {
-                    bitstream.write(mix_buffer_u[index] as u32, 24);
-                    bitstream.write(mix_buffer_v[index] as u32, 24);
+                    bitstream.write(self.mix_buffer_u[index] as u32, 24);
+                    bitstream.write(self.mix_buffer_v[index] as u32, 24);
                 }
             },
             32 => {
@@ -701,35 +680,35 @@ impl AlacEncoder {
             // mix the stereo inputs
             match self.bit_depth {
                 16 => {
-                    unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u, self.mix_buffer_v, (num_samples as i32) / (dilate as i32), mix_bits, mix_res); }
+                    unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res); }
                 },
                 20 => {
-                    unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, self.mix_buffer_v, (num_samples as i32) / (dilate as i32), mix_bits, mix_res); }
+                    unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res); }
                 },
                 24 => {
                     // includes extraction of shifted-off bytes
-                    unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, self.mix_buffer_v, (num_samples as i32) / (dilate as i32), mix_bits, mix_res, self.shift_buffer_uv, bytes_shifted as i32); }
+                    unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
                 },
                 32 => {
                     // includes extraction of shifted-off bytes
-                    unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u, self.mix_buffer_v, (num_samples as i32) / (dilate as i32), mix_bits, mix_res, self.shift_buffer_uv, bytes_shifted as i32); }
+                    unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
                 },
                 _ => panic!("Invalid mBitDepth"),
             }
 
-            let mut work_bits = BitBuffer::new(unsafe { std::slice::from_raw_parts_mut(self.work_buffer, self.max_output_bytes) });
+            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
 
             // run the dynamic predictors
-            unsafe { bindings::pc_block(self.mix_buffer_u, self.predictor_u, (num_samples as i32) / (dilate as i32), coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
-            unsafe { bindings::pc_block(self.mix_buffer_v, self.predictor_v, (num_samples as i32) / (dilate as i32), coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+            unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+            unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
 
             // run the lossless compressor on each channel
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples as u32) / (dilate as u32), (num_samples as u32) / (dilate as u32), bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u, &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits1) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits1) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * (PB0 as u32)) / 4, KB0 as u32, (num_samples as u32) / (dilate as u32), (num_samples as u32) / (dilate as u32), bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v, &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits2) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits2) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             // look for best match
@@ -745,18 +724,18 @@ impl AlacEncoder {
         let mix_res: i32 = self.last_mix_res[channel_index] as i32;
         match self.bit_depth {
             16 => {
-                unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u, self.mix_buffer_v, num_samples as i32, mix_bits, mix_res); }
+                unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res); }
             },
             20 => {
-                unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, self.mix_buffer_v, num_samples as i32, mix_bits, mix_res); }
+                unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res); }
             },
             24 => {
                 // also extracts the shifted off bytes into the shift buffers
-                unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u, self.mix_buffer_v, num_samples as i32, mix_bits, mix_res, self.shift_buffer_uv, bytes_shifted as i32); }
+                unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
             },
             32 => {
                 // also extracts the shifted off bytes into the shift buffers
-                unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u, self.mix_buffer_v, num_samples as i32, mix_bits, mix_res, self.shift_buffer_uv, bytes_shifted as i32); }
+                unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
             },
             _ => panic!("Invalid mBitDepth"),
         }
@@ -768,20 +747,20 @@ impl AlacEncoder {
         let mut min_bits2: u32 = 1 << 31;
 
         for num_uv in (MIN_UV..=MAX_UV).step_by(4) {
-            let mut work_bits = BitBuffer::new(unsafe { std::slice::from_raw_parts_mut(self.work_buffer, self.max_output_bytes as usize) });
+            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
 
             // let dilate: u32 = 32;
             dilate = 32;
 
             for _ in 0..8 {
-                unsafe { bindings::pc_block(self.mix_buffer_u, self.predictor_u, (num_samples as i32) / (dilate as i32), coefs_u[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
-                unsafe { bindings::pc_block(self.mix_buffer_v, self.predictor_v, (num_samples as i32) / (dilate as i32), coefs_v[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_u[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_v.as_mut_ptr(), (num_samples as i32) / (dilate as i32), coefs_v[(num_uv as usize) - 1].as_mut_ptr(), num_uv as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
             }
 
             dilate = 8;
 
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, (num_samples as u32) / dilate, (num_samples as u32) / dilate, bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u, &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits1) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits1) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             if (bits1 * dilate + 16 * num_uv) < min_bits1 {
@@ -790,7 +769,7 @@ impl AlacEncoder {
             }
 
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, (num_samples as u32) / dilate, (num_samples as u32) / dilate, bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v, &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits2) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v.as_mut_ptr(), &mut work_bits.c_handle, (num_samples as i32) / (dilate as i32), chan_bits as i32, &mut bits2) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             if (bits2 * dilate + 16 * num_uv) < min_bits2 {
@@ -840,10 +819,8 @@ impl AlacEncoder {
                 let bit_shift: u32 = (bytes_shifted as u32) * 8;
                 assert!(bit_shift <= 16);
 
-                let shift_buffer_uv = unsafe { std::slice::from_raw_parts_mut(self.shift_buffer_uv, num_samples * 2) };
-
                 for index in (0..(num_samples * 2)).step_by(2) {
-                    let shifted_val: u32 = ((shift_buffer_uv[index + 0] as u32) << bit_shift) | (shift_buffer_uv[index + 1] as u32);
+                    let shifted_val: u32 = ((self.shift_buffer_uv[index + 0] as u32) << bit_shift) | (self.shift_buffer_uv[index + 1] as u32);
                     bitstream.write(shifted_val, bit_shift * 2);
                 }
             }
@@ -852,26 +829,26 @@ impl AlacEncoder {
             // - note: to avoid allocating more buffers, we're mixing and matching between the available buffers instead
             //   of only using "U" buffers for the U-channel and "V" buffers for the V-channel
             if mode == 0 {
-                unsafe { bindings::pc_block(self.mix_buffer_u, self.predictor_u, num_samples as i32, coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_u.as_mut_ptr(), num_samples as i32, coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
             } else {
-                unsafe { bindings::pc_block(self.mix_buffer_u, self.predictor_v, num_samples as i32, coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
-                unsafe { bindings::pc_block(self.predictor_v, self.predictor_u, num_samples as i32, std::ptr::null_mut(), 31, chan_bits, 0); }
+                unsafe { bindings::pc_block(self.mix_buffer_u.as_mut_ptr(), self.predictor_v.as_mut_ptr(), num_samples as i32, coefs_u[(num_u as usize) - 1].as_mut_ptr(), num_u as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.predictor_v.as_mut_ptr(), self.predictor_u.as_mut_ptr(), num_samples as i32, std::ptr::null_mut(), 31, chan_bits, 0); }
             }
 
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, num_samples as u32, num_samples as u32, bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u, &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits1) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_u.as_mut_ptr(), &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits1) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             // run the dynamic predictor and lossless compression for the "right" channel
             if mode == 0 {
-                unsafe { bindings::pc_block(self.mix_buffer_v, self.predictor_v, num_samples as i32, coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_v.as_mut_ptr(), num_samples as i32, coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
             } else {
-                unsafe { bindings::pc_block(self.mix_buffer_v, self.predictor_u, num_samples as i32, coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
-                unsafe { bindings::pc_block(self.predictor_u, self.predictor_v, num_samples as i32, std::ptr::null_mut(), 31, chan_bits, 0); }
+                unsafe { bindings::pc_block(self.mix_buffer_v.as_mut_ptr(), self.predictor_u.as_mut_ptr(), num_samples as i32, coefs_v[(num_v as usize) - 1].as_mut_ptr(), num_v as i32, chan_bits, bindings::DENSHIFT_DEFAULT); }
+                unsafe { bindings::pc_block(self.predictor_u.as_mut_ptr(), self.predictor_v.as_mut_ptr(), num_samples as i32, std::ptr::null_mut(), 31, chan_bits, 0); }
             }
 
             unsafe { bindings::set_ag_params(&mut ag_params, MB0 as u32, (pb_factor * PB0 as u32) / 4, KB0 as u32, num_samples as u32, num_samples as u32, bindings::MAX_RUN_DEFAULT); }
-            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v, &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits2) };
+            let status = unsafe { bindings::dyn_comp(&mut ag_params, self.predictor_v.as_mut_ptr(), &mut bitstream.c_handle, num_samples as i32, chan_bits as i32, &mut bits2) };
             if status != 0 { return Err(Error::from_status(status)); }
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
@@ -889,24 +866,6 @@ impl AlacEncoder {
         }
 
         Ok(())
-    }
-}
-
-impl Drop for AlacEncoder {
-    fn drop(&mut self) {
-        // delete the matrix mixing buffers
-        unsafe { libc::free(self.mix_buffer_u as *mut std::ffi::c_void); }
-        unsafe { libc::free(self.mix_buffer_v as *mut std::ffi::c_void); }
-
-        // delete the dynamic predictor's "corrector" buffers
-        unsafe { libc::free(self.predictor_u as *mut std::ffi::c_void); }
-        unsafe { libc::free(self.predictor_v as *mut std::ffi::c_void); }
-
-        // delete the unused byte shift buffer
-        unsafe { libc::free(self.shift_buffer_uv as *mut std::ffi::c_void); }
-
-        // delete the work buffer
-        unsafe { libc::free(self.work_buffer as *mut std::ffi::c_void); }
     }
 }
 
