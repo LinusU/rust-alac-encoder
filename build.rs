@@ -6,7 +6,6 @@ use bindgen;
 
 fn main() {
     cc::Build::new()
-        .file("vendor/codec/ag_dec.c")
         .file("vendor/codec/ag_enc.c")
         .file("vendor/codec/ALACBitUtilities.c")
         .file("vendor/codec/dp_enc.c")
