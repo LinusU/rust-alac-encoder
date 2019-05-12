@@ -388,7 +388,7 @@ impl AlacEncoder {
     }
 
     fn encode_mono(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) -> Result<(), Error> {
-        let start_bits = bitstream.save_state();
+        let start_bits = bitstream.save_position();
         let start_position = bitstream.get_position();
 
         match self.bit_depth {
@@ -522,7 +522,7 @@ impl AlacEncoder {
             // chuck it and do an escape packet
             let min_bits = (bitstream.get_position() - start_position) as u32;
             if min_bits >= escape_bits {
-                bitstream.load_state(start_bits); // reset bitstream state
+                bitstream.load_position(start_bits); // reset bitstream position
                 do_escape = true;
                 println!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
             }
@@ -623,7 +623,7 @@ impl AlacEncoder {
     }
 
     fn encode_stereo(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) -> Result<(), Error> {
-        let start_bits = bitstream.save_state();
+        let start_bits = bitstream.save_position();
         let start_position = bitstream.get_position();
 
         match self.bit_depth {
@@ -838,7 +838,7 @@ impl AlacEncoder {
             // chuck it and do an escape packet
             let min_bits = (bitstream.get_position() - start_position) as u32;
             if min_bits >= escape_bits {
-                bitstream.load_state(start_bits); // reset bitstream state
+                bitstream.load_position(start_bits); // reset bitstream position
                 do_escape = true;
                 println!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
             }

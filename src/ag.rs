@@ -163,8 +163,8 @@ fn dyn_jam_no_deref_large(out: *mut u8, bit_pos: u32, num_bits: u32, value: u32)
 pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_samples: usize, bit_size: usize) -> u32 {
     assert!(bit_size > 0 && bit_size <= 32);
 
-    let out: *mut u8 = bitstream.c_handle.cur;
-    let start_pos: u32 = bitstream.c_handle.bitIndex;
+    let out: *mut u8 = unsafe { bitstream.buffer.as_mut_ptr().offset(bitstream.position.byte as isize) };
+    let start_pos: u32 = bitstream.position.bit;
     let mut bit_pos: u32 = start_pos;
 
     let mut mb: u32 = params.mb;
