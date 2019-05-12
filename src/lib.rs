@@ -467,7 +467,7 @@ impl AlacEncoder {
             let dilate = 8usize;
             dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
 
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
+            let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             let num_bits = ((dilate as u32) * bits1) + (16 * num_u as u32);
@@ -693,10 +693,10 @@ impl AlacEncoder {
             dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
 
             // run the lossless compressor on each channel
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
+            let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
+            let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits2 = ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             // look for best match
@@ -746,7 +746,7 @@ impl AlacEncoder {
 
             let dilate = 8usize;
 
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
+            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             if (bits1 * (dilate as u32) + 16 * num_uv) < min_bits1 {
@@ -754,7 +754,7 @@ impl AlacEncoder {
                 num_u = num_uv;
             }
 
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32, bindings::MAX_RUN_DEFAULT);
+            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits2 = ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             if (bits2 * (dilate as u32) + 16 * num_uv) < min_bits2 {
@@ -820,7 +820,7 @@ impl AlacEncoder {
                 dp::pc_block(&self.predictor_v, &mut self.predictor_u, num_samples, &mut [], 31, chan_bits as usize, 0);
             }
 
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32, bindings::MAX_RUN_DEFAULT);
+            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32);
             ag::dyn_comp(&ag_params, &self.predictor_u, bitstream, num_samples, chan_bits as usize);
 
             // run the dynamic predictor and lossless compression for the "right" channel
@@ -831,7 +831,7 @@ impl AlacEncoder {
                 dp::pc_block(&self.predictor_u, &mut self.predictor_v, num_samples, &mut [], 31, chan_bits as usize, 0);
             }
 
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32, bindings::MAX_RUN_DEFAULT);
+            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32);
             ag::dyn_comp(&ag_params, &self.predictor_v, bitstream, num_samples, chan_bits as usize);
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,

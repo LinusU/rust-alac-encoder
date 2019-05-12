@@ -3,13 +3,10 @@
 use std::cmp;
 use std::ptr;
 
-use crate::bindings;
 use crate::bit_buffer::BitBuffer;
 
 const QBSHIFT: u32 = 9;
 const QB: u32 = (1 << QBSHIFT);
-
-const MAX_RUN_DEFAULT: u32 = 255;
 
 const MMULSHIFT: u32 = 2;
 const MDENSHIFT: u32 = (QBSHIFT - MMULSHIFT - 1);
@@ -32,28 +29,30 @@ pub const MB0: u32 = 10;
 pub const KB0: u32 = 14;
 
 pub struct AgParams {
-    c_handle: bindings::AGParamRec,
+    mb: u32,
+    pb: u32,
+    kb: u32,
+    wb: u32,
+    /// Full width
+    fw: u32,
+    /// Sector width
+    sw: u32,
 }
 
 impl AgParams {
-    pub fn new(m: u32, p: u32, k: u32, f: u32, s: u32, maxrun: u32) -> AgParams {
+    pub fn new(m: u32, p: u32, k: u32, f: u32, s: u32) -> AgParams {
         AgParams {
-            c_handle: bindings::AGParamRec {
-                mb: m,
-                mb0: m,
-                pb: p,
-                kb: k,
-                wb: (1 << k) - 1,
-                qb: QB - p,
-                fw: f,
-                sw: s,
-                maxrun: maxrun,
-            }
+            mb: m,
+            pb: p,
+            kb: k,
+            wb: (1 << k) - 1,
+            fw: f,
+            sw: s,
         }
     }
 
     pub fn new_standard(fullwidth: u32, sectorwidth: u32) -> AgParams {
-        AgParams::new(MB0, PB0, KB0, fullwidth, sectorwidth, MAX_RUN_DEFAULT)
+        AgParams::new(MB0, PB0, KB0, fullwidth, sectorwidth)
     }
 }
 
@@ -168,15 +167,15 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
     let start_pos: u32 = bitstream.c_handle.bitIndex;
     let mut bit_pos: u32 = start_pos;
 
-    let mut mb: u32 = params.c_handle.mb;
-    let pb: u32 = params.c_handle.pb;
-    let kb: u32 = params.c_handle.kb;
-    let wb: u32 = params.c_handle.wb;
+    let mut mb: u32 = params.mb;
+    let pb: u32 = params.pb;
+    let kb: u32 = params.kb;
+    let wb: u32 = params.wb;
     let mut zmode: u32 = 0;
 
     let mut row_pos = 0usize;
-    let row_size = params.c_handle.sw as usize;
-    let row_jump = params.c_handle.fw as usize - row_size;
+    let row_size = params.sw as usize;
+    let row_jump = params.fw as usize - row_size;
     let mut in_ptr = 0usize;
 
     let mut c: u32 = 0;
