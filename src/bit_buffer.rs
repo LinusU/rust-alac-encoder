@@ -1,80 +1,79 @@
-use std::cmp;
-
-#[derive(Clone, Copy)]
-pub struct Position {
-    pub byte: usize,
-    pub bit: u32,
-}
-
 pub struct BitBuffer<'a> {
     pub buffer: &'a mut [u8],
-    pub position: Position,
+    pub position: usize,
 }
 
 impl<'a> BitBuffer<'a> {
     pub fn new(buffer: &'a mut [u8]) -> BitBuffer<'a> {
-        BitBuffer { buffer, position: Position { byte: 0, bit: 0 } }
+        BitBuffer { buffer, position: 0 }
     }
 
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
+    pub fn write_lte25(&mut self, bit_values: u32, num_bits: u32) {
+        assert!(num_bits > 0 && num_bits <= 25);
+
+        let target = unsafe { self.buffer.as_mut_ptr().offset((self.position >> 3) as isize) as *mut u32 };
+        let shift = 32 - ((self.position as u32) & 7) - num_bits;
+
+        let curr = u32::from_be(unsafe { std::ptr::read_unaligned(target) });
+
+        let mask = ((!0u32) >> (32 - num_bits)) << shift;
+        let main = ((bit_values << shift) & mask) | (curr & !mask);
+
+        unsafe { std::ptr::write_unaligned(target, main.to_be()); }
+
+        self.position += num_bits as usize;
+    }
+
     pub fn write(&mut self, bit_values: u32, num_bits: u32) {
-        if num_bits == 0 { return; }
+        assert!(num_bits > 0 && num_bits <= 32);
 
-        let mut inv_bit_index = 8 - self.position.bit;
-        let mut bits_left = num_bits;
+        let target = unsafe { self.buffer.as_mut_ptr().offset((self.position >> 3) as isize) as *mut u32 };
+        let shift = (32 - ((self.position as i32) & 7) - (num_bits as i32)) as i32;
 
-        while bits_left > 0 {
-            let cur_num = cmp::min(inv_bit_index, bits_left);
-            let tmp = (bit_values >> (bits_left - cur_num)) as u8;
+        let curr = u32::from_be(unsafe { std::ptr::read_unaligned(target) });
 
-            let shift = (inv_bit_index - cur_num) as u8;
-            let mask = (0xffu8 >> (8 - cur_num)) << shift;
+        if shift < 0 {
+            let mask = (!0u32) >> -shift;
+            let main = (bit_values >> -shift) | (curr & !mask);
+            let tail = ((bit_values << ((8 + shift))) & 0xff) as u8;
 
-            // modify current byte
-            self.buffer[self.position.byte] = (self.buffer[self.position.byte] & !mask) | ((tmp << shift) & mask);
-            bits_left -= cur_num;
+            unsafe { std::ptr::write_unaligned(target, main.to_be()); }
+            unsafe { std::ptr::write_unaligned(target.offset(1) as *mut u8, tail); }
+        } else {
+            let mask = ((!0u32) >> (32 - num_bits)) << shift;
+            let main = ((bit_values << shift) & mask) | (curr & !mask);
 
-            // increment to next byte if need be
-            inv_bit_index -= cur_num;
-            if inv_bit_index == 0 {
-                inv_bit_index = 8;
-                self.position.byte += 1;
-            }
+            unsafe { std::ptr::write_unaligned(target, main.to_be()); }
         }
 
-        self.position.bit = 8 - inv_bit_index;
+        self.position += num_bits as usize;
     }
 
     /// Align bit buffer to next byte boundary, writing zeros if requested
     pub fn byte_align(&mut self, add_zeros: bool) {
-        if self.position.bit == 0 { return; }
+        let bit = (self.position & 7) as u32;
+
+        if bit == 0 { return; }
 
         match add_zeros {
-            true => self.write(0, 8 - self.position.bit),
-            false => self.advance(8 - self.position.bit),
+            true => self.write_lte25(0, 8 - bit),
+            false => self.advance(8 - bit),
         }
-    }
-
-    pub fn get_position(&self) -> usize {
-        (self.position.byte * 8) + (self.position.bit as usize)
     }
 
     pub fn advance(&mut self, num_bits: u32) {
-        if num_bits > 0 {
-            self.position.bit += num_bits;
-            self.position.byte += (self.position.bit as usize) >> 3;
-            self.position.bit &= 7;
-        }
+        self.position += num_bits as usize;
     }
 
-    pub fn save_position(&self) -> Position {
+    pub fn position(&self) -> usize {
         self.position
     }
 
-    pub fn load_position(&mut self, position: Position) {
+    pub fn set_position(&mut self, position: usize) {
         self.position = position;
     }
 }

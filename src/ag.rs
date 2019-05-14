@@ -1,7 +1,6 @@
 //! Adaptive Golomb
 
 use std::cmp;
-use std::ptr;
 
 use crate::bit_buffer::BitBuffer;
 
@@ -121,51 +120,10 @@ fn dyn_code_32bit(maxbits: usize, m: u32, k: u32, n: u32, out_num_bits: &mut u32
     return did_overflow;
 }
 
-#[inline(always)]
-fn dyn_jam_no_deref(out: *mut u8, bit_pos: u32, num_bits: u32, value: u32) {
-    assert!(num_bits > 0 && num_bits <= 32);
-
-    let target = unsafe { out.offset((bit_pos as isize) >> 3) as *mut u32 };
-    let shift = 32 - (bit_pos & 7) - num_bits;
-
-    let curr = unsafe { ptr::read_unaligned(target).to_be() };
-
-    let mask = ((!0u32) >> (32 - num_bits)) << shift;
-    let main = ((value << shift) & mask) | (curr & !mask);
-
-    unsafe { ptr::write_unaligned(target, u32::from_be(main)); }
-}
-
-#[inline(always)]
-fn dyn_jam_no_deref_large(out: *mut u8, bit_pos: u32, num_bits: u32, value: u32) {
-    assert!(num_bits > 0 && num_bits <= 32);
-
-    let target = unsafe { out.offset((bit_pos as isize) >> 3) as *mut u32 };
-    let shift = (32 - (bit_pos & 7) - num_bits) as i32;
-
-    let curr = unsafe { ptr::read_unaligned(target).to_be() };
-
-    if shift < 0 {
-        let mask = (!0u32) >> -shift;
-        let main = (value >> -shift) | (curr & !mask);
-        let tail = ((value << ((8 + shift))) & 0xff) as u8;
-
-        unsafe { ptr::write_unaligned(target, u32::from_be(main)); }
-        unsafe { ptr::write_unaligned(target.offset(1) as *mut u8, tail); }
-    } else {
-        let mask = ((!0u32) >> (32 - num_bits)) << shift;
-        let main = ((value << shift) & mask) | (curr & !mask);
-
-        unsafe { ptr::write_unaligned(target, u32::from_be(main)); }
-    }
-}
-
-pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_samples: usize, bit_size: usize) -> u32 {
+pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_samples: usize, bit_size: usize) -> usize {
     assert!(bit_size > 0 && bit_size <= 32);
 
-    let out: *mut u8 = unsafe { bitstream.buffer.as_mut_ptr().offset(bitstream.position.byte as isize) };
-    let start_pos: u32 = bitstream.position.bit;
-    let mut bit_pos: u32 = start_pos;
+    let start_position = bitstream.position();
 
     let mut mb: u32 = params.mb;
     let pb: u32 = params.pb;
@@ -197,13 +155,10 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
             let mut overflowbits: u32 = 0;
 
             if dyn_code_32bit(bit_size, m, k, n, &mut num_bits, &mut value, &mut overflow, &mut overflowbits) {
-                dyn_jam_no_deref(out, bit_pos, num_bits, value);
-                bit_pos += num_bits;
-                dyn_jam_no_deref_large(out, bit_pos, overflowbits, overflow);
-                bit_pos += overflowbits;
+                bitstream.write_lte25(value, num_bits);
+                bitstream.write(overflow, overflowbits);
             } else {
-                dyn_jam_no_deref(out, bit_pos, num_bits, value);
-                bit_pos += num_bits;
+                bitstream.write_lte25(value, num_bits);
             }
         }
 
@@ -251,15 +206,11 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
 
             let mut num_bits: u32 = 0;
             let value: u32 = dyn_code(mz, k, nz, &mut num_bits);
-            dyn_jam_no_deref(out, bit_pos, num_bits, value);
-            bit_pos += num_bits;
+            bitstream.write_lte25(value, num_bits);
 
             mb = 0;
         }
     }
 
-    let out_num_bits = bit_pos - start_pos;
-    bitstream.advance(out_num_bits);
-
-    out_num_bits
+    bitstream.position() - start_position
 }

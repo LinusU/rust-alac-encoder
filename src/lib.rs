@@ -25,8 +25,8 @@ const DEFAULT_MIX_BITS: u32 = 2;
 const MAX_RES: u32 = 4;
 const DEFAULT_NUM_UV: u32 = 8;
 
-const MIN_UV: u32 = 4;
-const MAX_UV: u32 = 8;
+const MIN_UV: usize = 4;
+const MAX_UV: usize = 8;
 
 const MAX_RUN_DEFAULT: u16 = 255;
 
@@ -306,16 +306,16 @@ impl AlacEncoder {
         match input_format.channels_per_frame {
             1 => {
                 // add 3-bit frame start tag ID_SCE = mono channel & 4-bit element instance tag = 0
-                bitstream.write(ElementType::SCE as u32, 3);
-                bitstream.write(0, 4);
+                bitstream.write_lte25(ElementType::SCE as u32, 3);
+                bitstream.write_lte25(0, 4);
 
                 // encode mono input buffer
                 self.encode_mono(&mut bitstream, input_data, 1, 0, num_frames as usize)?;
             },
             2 => {
                 // add 3-bit frame start tag ID_CPE = channel pair & 4-bit element instance tag = 0
-                bitstream.write(ElementType::CPE as u32, 3);
-                bitstream.write(0, 4);
+                bitstream.write_lte25(ElementType::CPE as u32, 3);
+                bitstream.write_lte25(0, 4);
 
                 // encode stereo input buffer
                 self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames as usize)?;
@@ -332,12 +332,12 @@ impl AlacEncoder {
                 while channel_index < input_format.channels_per_frame {
                     let tag = CHANNEL_MAPS[input_format.channels_per_frame as usize - 1][channel_index as usize];
 
-                    bitstream.write(tag as u32, 3);
+                    bitstream.write_lte25(tag as u32, 3);
 
                     match tag {
                         ElementType::SCE => {
                             // mono
-                            bitstream.write(mono_element_tag, 4);
+                            bitstream.write_lte25(mono_element_tag, 4);
                             let input_size = input_increment * 1;
                             self.encode_mono(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
                             input_position += input_size;
@@ -346,7 +346,7 @@ impl AlacEncoder {
                         },
                         ElementType::CPE => {
                             // stereo
-                            bitstream.write(stereo_element_tag, 4);
+                            bitstream.write_lte25(stereo_element_tag, 4);
                             let input_size = input_increment * 2;
                             self.encode_stereo(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
                             input_position += input_size;
@@ -355,7 +355,7 @@ impl AlacEncoder {
                         },
                         ElementType::LFE => {
                             // LFE channel (subwoofer)
-                            bitstream.write(lfe_element_tag, 4);
+                            bitstream.write_lte25(lfe_element_tag, 4);
                             let input_size = input_increment * 1;
                             self.encode_mono(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
                             input_position += input_size;
@@ -372,12 +372,12 @@ impl AlacEncoder {
         }
 
         // add 3-bit frame end tag: ID_END
-        bitstream.write(bindings::ELEMENT_TYPE_ID_END, 3);
+        bitstream.write_lte25(bindings::ELEMENT_TYPE_ID_END, 3);
 
         // byte-align the output data
         bitstream.byte_align(true);
 
-        let output_size = bitstream.get_position() / 8;
+        let output_size = bitstream.position() / 8;
         assert!(output_size <= bitstream.len());
         assert!(output_size <= self.max_output_bytes);
 
@@ -388,8 +388,7 @@ impl AlacEncoder {
     }
 
     fn encode_mono(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) -> Result<(), Error> {
-        let start_bits = bitstream.save_position();
-        let start_position = bitstream.get_position();
+        let start_position = bitstream.position();
 
         match self.bit_depth {
             16 => {},
@@ -453,7 +452,7 @@ impl AlacEncoder {
         let max_u = 8;
         let pb_factor = 4;
 
-        let mut min_bits: u32 = 1 << 31;
+        let mut min_bits = 1 << 31;
         let mut best_u = min_u;
 
         for num_u in (min_u..max_u).step_by(4) {
@@ -470,7 +469,7 @@ impl AlacEncoder {
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
-            let num_bits = ((dilate as u32) * bits1) + (16 * num_u as u32);
+            let num_bits = (dilate * bits1) + (16 * num_u);
             if num_bits < min_bits {
                 best_u = num_u;
                 min_bits = num_bits;
@@ -481,27 +480,27 @@ impl AlacEncoder {
         // - first, add bits for the header bytes mixRes/maxRes/shiftU/filterU
         min_bits += (4 /* mixRes/maxRes/etc. */ * 8) + (if partial_frame == (true as u8) { 32 } else { 0 });
         if bytes_shifted != 0 {
-            min_bits += (num_samples as u32) * ((bytes_shifted as u32) * 8);
+            min_bits += num_samples * ((bytes_shifted as usize) * 8);
         }
 
-        let escape_bits: u32 = ((num_samples as u32) * (self.bit_depth as u32)) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
+        let escape_bits = (num_samples * (self.bit_depth as usize)) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
 
         let mut do_escape = min_bits >= escape_bits;
 
         if do_escape == false {
             // write bitstream header
-            bitstream.write(0, 12);
-            bitstream.write(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
+            bitstream.write_lte25(0, 12);
+            bitstream.write_lte25(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
             if partial_frame > 0 {
                 bitstream.write(num_samples as u32, 32);
             }
-            bitstream.write(0, 16); // mixBits = mixRes = 0
+            bitstream.write_lte25(0, 16); // mixBits = mixRes = 0
 
             // write the params and predictor coefs
-            bitstream.write((0 << 4) | bindings::DENSHIFT_DEFAULT, 8); // modeU = 0
-            bitstream.write(((pb_factor as u32) << 5) | (best_u as u32), 8);
+            bitstream.write_lte25((0 << 4) | bindings::DENSHIFT_DEFAULT, 8); // modeU = 0
+            bitstream.write_lte25(((pb_factor as u32) << 5) | (best_u as u32), 8);
             for index in 0..best_u {
-                bitstream.write(coefs_u[(best_u as usize) - 1][index] as u32, 16);
+                bitstream.write_lte25(coefs_u[(best_u as usize) - 1][index] as u32, 16);
             }
 
             // if shift active, write the interleaved shift buffers
@@ -520,9 +519,9 @@ impl AlacEncoder {
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
             // chuck it and do an escape packet
-            let min_bits = (bitstream.get_position() - start_position) as u32;
+            let min_bits = bitstream.position() - start_position;
             if min_bits >= escape_bits {
-                bitstream.load_position(start_bits); // reset bitstream position
+                bitstream.set_position(start_position);
                 do_escape = true;
                 println!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
             }
@@ -530,8 +529,8 @@ impl AlacEncoder {
 
         if do_escape == true {
             // write bitstream header and coefs
-            bitstream.write(0, 12);
-            bitstream.write(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
+            bitstream.write_lte25(0, 12);
+            bitstream.write_lte25(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
             if partial_frame > 0 {
                 bitstream.write(num_samples as u32, 32);
             }
@@ -541,21 +540,21 @@ impl AlacEncoder {
                 16 => {
                     let input16 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i16 as *mut i16, num_samples * stride) };
                     for index in (0..(num_samples * stride)).step_by(stride) {
-                        bitstream.write(input16[index] as u32, 16);
+                        bitstream.write_lte25(input16[index] as u32, 16);
                     }
                 },
                 20 => {
                     // convert 20-bit data to 32-bit for simplicity
                     unsafe { bindings::copy20ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
                     for index in 0..num_samples {
-                        bitstream.write(self.mix_buffer_u[index] as u32, 20);
+                        bitstream.write_lte25(self.mix_buffer_u[index] as u32, 20);
                     }
                 },
                 24 => {
                     // convert 24-bit data to 32-bit for simplicity
                     unsafe { bindings::copy24ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
                     for index in 0..num_samples {
-                        bitstream.write(self.mix_buffer_u[index] as u32, 24);
+                        bitstream.write_lte25(self.mix_buffer_u[index] as u32, 24);
                     }
                 },
                 32 => {
@@ -576,8 +575,8 @@ impl AlacEncoder {
         let partial_frame: u8 = if num_samples == (self.frame_size) { 0 } else { 1 };
 
         // write bitstream header
-        bitstream.write(0, 12);
-        bitstream.write(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
+        bitstream.write_lte25(0, 12);
+        bitstream.write_lte25(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
         if partial_frame > 0 {
             bitstream.write(num_samples as u32, 32);
         }
@@ -588,24 +587,24 @@ impl AlacEncoder {
                 let input16 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
 
                 for index in (0..(num_samples * stride)).step_by(stride) {
-                    bitstream.write(input16[index + 0] as u32, 16);
-                    bitstream.write(input16[index + 1] as u32, 16);
+                    bitstream.write_lte25(input16[index + 0] as u32, 16);
+                    bitstream.write_lte25(input16[index + 1] as u32, 16);
                 }
             },
             20 => {
                 // mix20() with mixres param = 0 means de-interleave so use it to simplify things
                 unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, 0, 0); }
                 for index in 0..num_samples {
-                    bitstream.write(self.mix_buffer_u[index] as u32, 20);
-                    bitstream.write(self.mix_buffer_v[index] as u32, 20);
+                    bitstream.write_lte25(self.mix_buffer_u[index] as u32, 20);
+                    bitstream.write_lte25(self.mix_buffer_v[index] as u32, 20);
                 }
             },
             24 => {
                 // mix24() with mixres param = 0 means de-interleave so use it to simplify things
                 unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, 0, 0, self.shift_buffer_uv.as_mut_ptr(), 0); }
                 for index in 0..num_samples {
-                    bitstream.write(self.mix_buffer_u[index] as u32, 24);
-                    bitstream.write(self.mix_buffer_v[index] as u32, 24);
+                    bitstream.write_lte25(self.mix_buffer_u[index] as u32, 24);
+                    bitstream.write_lte25(self.mix_buffer_v[index] as u32, 24);
                 }
             },
             32 => {
@@ -623,8 +622,7 @@ impl AlacEncoder {
     }
 
     fn encode_stereo(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) -> Result<(), Error> {
-        let start_bits = bitstream.save_position();
-        let start_position = bitstream.get_position();
+        let start_position = bitstream.position();
 
         match self.bit_depth {
             16 => {},
@@ -661,7 +659,7 @@ impl AlacEncoder {
         let mode: u32 = 0;
         let pb_factor: u32 = 4;
 
-        let mut min_bits: u32 = 1 << 31;
+        let mut min_bits = 1 << 31;
         let mut best_res: i32 = self.last_mix_res[channel_index] as i32;
 
         for mix_res in 0..=max_res {
@@ -729,10 +727,10 @@ impl AlacEncoder {
         }
 
         // now it's time for the predictor coefficient search loop
-        let mut num_u: u32 = MIN_UV;
-        let mut num_v: u32 = MIN_UV;
-        let mut min_bits1: u32 = 1 << 31;
-        let mut min_bits2: u32 = 1 << 31;
+        let mut num_u: usize = MIN_UV;
+        let mut num_v: usize = MIN_UV;
+        let mut min_bits1: usize = 1 << 31;
+        let mut min_bits2: usize = 1 << 31;
 
         for num_uv in (MIN_UV..=MAX_UV).step_by(4) {
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
@@ -749,16 +747,16 @@ impl AlacEncoder {
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
-            if (bits1 * (dilate as u32) + 16 * num_uv) < min_bits1 {
-                min_bits1 = bits1 * (dilate as u32) + 16 * num_uv;
+            if (bits1 * dilate + 16 * num_uv) < min_bits1 {
+                min_bits1 = bits1 * dilate + 16 * num_uv;
                 num_u = num_uv;
             }
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
             let bits2 = ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
-            if (bits2 * (dilate as u32) + 16 * num_uv) < min_bits2 {
-                min_bits2 = bits2 * (dilate as u32) + 16 * num_uv;
+            if (bits2 * dilate + 16 * num_uv) < min_bits2 {
+                min_bits2 = bits2 * dilate + 16 * num_uv;
                 num_v = num_uv;
             }
         }
@@ -766,37 +764,37 @@ impl AlacEncoder {
         // test for escape hatch if best calculated compressed size turns out to be more than the input size
         let mut min_bits = min_bits1 + min_bits2 + (8 /* mixRes/maxRes/etc. */ * 8) + (if partial_frame == (true as u8) { 32 } else { 0 });
         if bytes_shifted != 0 {
-            min_bits += (num_samples as u32) * ((bytes_shifted as u32) * 8) * 2;
+            min_bits += (num_samples) * ((bytes_shifted as usize) * 8) * 2;
         }
 
-        let escape_bits: u32 = ((num_samples as u32) * (self.bit_depth as u32) * 2) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
+        let escape_bits = (num_samples * (self.bit_depth as usize) * 2) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
 
         let mut do_escape = min_bits >= escape_bits;
 
         if do_escape == false {
             // write bitstream header and coefs
-            bitstream.write(0, 12);
-            bitstream.write(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
+            bitstream.write_lte25(0, 12);
+            bitstream.write_lte25(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
             if partial_frame > 0 {
                 bitstream.write(num_samples as u32, 32);
             }
-            bitstream.write(mix_bits as u32, 8);
-            bitstream.write(mix_res as u32, 8);
+            bitstream.write_lte25(mix_bits as u32, 8);
+            bitstream.write_lte25(mix_res as u32, 8);
 
             assert!((mode < 16) && (bindings::DENSHIFT_DEFAULT < 16));
             assert!((pb_factor < 8) && (num_u < 32));
             assert!((pb_factor < 8) && (num_v < 32));
 
-            bitstream.write((mode << 4) | bindings::DENSHIFT_DEFAULT, 8);
-            bitstream.write((pb_factor << 5) | num_u, 8);
+            bitstream.write_lte25((mode << 4) | bindings::DENSHIFT_DEFAULT, 8);
+            bitstream.write_lte25((pb_factor << 5) | (num_u as u32), 8);
             for index in 0..num_u {
-                bitstream.write(coefs_u[(num_u as usize) - 1][index as usize] as u32, 16);
+                bitstream.write_lte25(coefs_u[(num_u as usize) - 1][index as usize] as u32, 16);
             }
 
-            bitstream.write((mode << 4) | bindings::DENSHIFT_DEFAULT, 8);
-            bitstream.write((pb_factor << 5) | num_v, 8);
+            bitstream.write_lte25((mode << 4) | bindings::DENSHIFT_DEFAULT, 8);
+            bitstream.write_lte25((pb_factor << 5) | (num_v as u32), 8);
             for index in 0..num_v {
-                bitstream.write(coefs_v[(num_v as usize) - 1][index as usize] as u32, 16);
+                bitstream.write_lte25(coefs_v[(num_v as usize) - 1][index as usize] as u32, 16);
             }
 
             // if shift active, write the interleaved shift buffers
@@ -836,9 +834,9 @@ impl AlacEncoder {
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
             // chuck it and do an escape packet
-            let min_bits = (bitstream.get_position() - start_position) as u32;
+            let min_bits = bitstream.position() - start_position;
             if min_bits >= escape_bits {
-                bitstream.load_position(start_bits); // reset bitstream position
+                bitstream.set_position(start_position);
                 do_escape = true;
                 println!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
             }
