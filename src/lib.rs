@@ -456,8 +456,6 @@ impl AlacEncoder {
         let mut best_u = min_u;
 
         for num_u in (min_u..max_u).step_by(4) {
-            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
-
             let dilate = 32usize;
             for _ in 0..7 {
                 dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
@@ -466,10 +464,11 @@ impl AlacEncoder {
             let dilate = 8usize;
             dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
 
+            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
-            let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
-            let num_bits = (dilate * bits1) + (16 * num_u);
+            let num_bits = (dilate * work_bits.position()) + (16 * num_u);
             if num_bits < min_bits {
                 best_u = num_u;
                 min_bits = num_bits;
@@ -684,22 +683,19 @@ impl AlacEncoder {
                 _ => panic!("Invalid mBitDepth"),
             }
 
-            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
-
             // run the dynamic predictors
             dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
             dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
 
             // run the lossless compressor on each channel
+            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
-            let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
-
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
-            let bits2 = ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
 
             // look for best match
-            if (bits1 + bits2) < min_bits {
-                min_bits = bits1 + bits2;
+            if work_bits.position() < min_bits {
+                min_bits = work_bits.position();
                 best_res = mix_res;
             }
         }
@@ -733,8 +729,6 @@ impl AlacEncoder {
         let mut min_bits2: usize = 1 << 31;
 
         for num_uv in (MIN_UV..=MAX_UV).step_by(4) {
-            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
-
             let dilate = 32usize;
 
             for _ in 0..8 {
@@ -743,17 +737,20 @@ impl AlacEncoder {
             }
 
             let dilate = 8usize;
-
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
-            let bits1 = ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
+
+            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
+            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            let bits1 = work_bits.position();
 
             if (bits1 * dilate + 16 * num_uv) < min_bits1 {
                 min_bits1 = bits1 * dilate + 16 * num_uv;
                 num_u = num_uv;
             }
 
-            let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
-            let bits2 = ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            let mut work_bits = BitBuffer::new(&mut self.work_buffer);
+            ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            let bits2 = work_bits.position();
 
             if (bits2 * dilate + 16 * num_uv) < min_bits2 {
                 min_bits2 = bits2 * dilate + 16 * num_uv;

@@ -99,10 +99,8 @@ fn dyn_code_32bit(bitstream: &mut BitBuffer, maxbits: usize, m: u32, k: u32, n: 
     bitstream.write(n, maxbits as u32);
 }
 
-pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_samples: usize, bit_size: usize) -> usize {
+pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_samples: usize, bit_size: usize) {
     assert!(bit_size > 0 && bit_size <= 32);
-
-    let start_position = bitstream.position();
 
     let mut mb: u32 = params.mb;
     let pb: u32 = params.pb;
@@ -176,6 +174,4 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
             mb = 0;
         }
     }
-
-    bitstream.position() - start_position
 }
