@@ -45,7 +45,7 @@ enum ElementType {
     // DSE = 4,
     // PCE = 5,
     // FIL = 6,
-    // END = 7,
+    END = 7,
     /// invalid
     NIL = 255,
 }
@@ -373,7 +373,7 @@ impl AlacEncoder {
         }
 
         // add 3-bit frame end tag: ID_END
-        bitstream.write_lte25(bindings::ELEMENT_TYPE_ID_END, 3);
+        bitstream.write_lte25(ElementType::END as u32, 3);
 
         // byte-align the output data
         bitstream.byte_align(true);
