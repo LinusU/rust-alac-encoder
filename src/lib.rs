@@ -8,14 +8,14 @@ use ag::AgParams;
 use byteorder::{BE, WriteBytesExt};
 use bit_buffer::BitBuffer;
 
-pub const DEFAULT_FRAME_SIZE: usize = bindings::kALACDefaultFrameSize as usize;
-pub const DEFAULT_FRAMES_PER_PACKET: u32 = bindings::kALACDefaultFramesPerPacket;
+pub const DEFAULT_FRAME_SIZE: usize = 4096;
+pub const DEFAULT_FRAMES_PER_PACKET: u32 = 4096;
 
 // FIXME: Adding some bytes here because the encoder does produce packages that large when encoding random data
 // 4 & 5 channels seems to overflow by one byte
 // 6 channels seems to overflow by four bytes
 // 7 & 8 channels seems to overflow by seven bytes
-pub const MAX_ESCAPE_HEADER_BYTES: usize = bindings::kALACMaxEscapeHeaderBytes as usize + 7;
+pub const MAX_ESCAPE_HEADER_BYTES: usize = 8 + 7;
 
 const MAX_CHANNELS: usize = 8;
 const MAX_SAMPLE_SIZE: usize = 32;
@@ -30,6 +30,8 @@ const MIN_UV: usize = 4;
 const MAX_UV: usize = 8;
 
 const MAX_RUN_DEFAULT: u16 = 255;
+
+const ALAC_COMPATIBLE_VERSION: u8 = 0;
 
 #[derive(Clone, Copy, Debug)]
 enum ElementType {
@@ -82,18 +84,6 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-impl Error {
-    fn from_status(status: i32) -> Error {
-        match status {
-            bindings::kALAC_UnimplementedError => Error::Unimplemented,
-            bindings::kALAC_FileNotFoundError => Error::FileNotFound,
-            bindings::kALAC_ParamError => Error::Param,
-            bindings::kALAC_MemFullError => Error::MemFull,
-            _ => panic!("Unknown error status code"),
-        }
-    }
-}
-
 pub trait PcmFormat {
     fn bits() -> u32;
     fn bytes() -> u32;
@@ -103,7 +93,7 @@ pub trait PcmFormat {
 impl PcmFormat for i16 {
     fn bits() -> u32 { 16 }
     fn bytes() -> u32 { 2 }
-    fn flags() -> u32 { bindings::kALACFormatFlagsNativeEndian | bindings::kALACFormatFlagIsSignedInteger }
+    fn flags() -> u32 { 4 }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,7 +256,7 @@ impl AlacEncoder {
 
         /* ALACSpecificConfig */
         result.write_u32::<BE>(self.frame_size as u32).unwrap();
-        result.write_u8(bindings::kALACCompatibleVersion as u8).unwrap();
+        result.write_u8(ALAC_COMPATIBLE_VERSION).unwrap();
         result.write_u8(self.bit_depth as u8).unwrap();
         result.write_u8(ag::PB0 as u8).unwrap();
         result.write_u8(ag::MB0 as u8).unwrap();
