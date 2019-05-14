@@ -1,5 +1,4 @@
 mod ag;
-mod bindings;
 mod bit_buffer;
 mod dp;
 mod matrix;

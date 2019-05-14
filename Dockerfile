@@ -6,8 +6,7 @@ WORKDIR /usr/src
 RUN apt-get update && apt-get install -y libclang-4.0-dev && apt-get clean
 
 # Build dependencies
-COPY Cargo.toml build.rs ./
-COPY vendor vendor
+COPY Cargo.toml ./
 RUN mkdir src && touch src/lib.rs && cargo build
 
 # Run tests
