@@ -2,6 +2,7 @@ mod ag;
 mod bindings;
 mod bit_buffer;
 mod dp;
+mod matrix;
 
 use ag::AgParams;
 use byteorder::{BE, WriteBytesExt};
@@ -422,11 +423,11 @@ impl AlacEncoder {
             },
             20 => {
                 // convert 20-bit data to 32-bit for predictor
-                unsafe { bindings::copy20ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
+                matrix::copy20_to_predictor(input, stride, &mut self.mix_buffer_u, num_samples);
             },
             24 =>  {
                 // convert 24-bit data to 32-bit for the predictor and extract the shifted off byte(s)
-                unsafe { bindings::copy24ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
+                matrix::copy24_to_predictor(input, stride, &mut self.mix_buffer_u, num_samples);
                 for index in 0..num_samples {
                     self.shift_buffer_uv[index] = ((self.mix_buffer_u[index] as u32) & mask) as u16;
                     self.mix_buffer_u[index] >>= shift;
@@ -544,14 +545,14 @@ impl AlacEncoder {
                 },
                 20 => {
                     // convert 20-bit data to 32-bit for simplicity
-                    unsafe { bindings::copy20ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
+                    matrix::copy20_to_predictor(input, stride, &mut self.mix_buffer_u, num_samples);
                     for index in 0..num_samples {
                         bitstream.write_lte25(self.mix_buffer_u[index] as u32, 20);
                     }
                 },
                 24 => {
                     // convert 24-bit data to 32-bit for simplicity
-                    unsafe { bindings::copy24ToPredictor(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), num_samples as i32); }
+                    matrix::copy24_to_predictor(input, stride, &mut self.mix_buffer_u, num_samples);
                     for index in 0..num_samples {
                         bitstream.write_lte25(self.mix_buffer_u[index] as u32, 24);
                     }
