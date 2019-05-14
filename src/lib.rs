@@ -33,6 +33,7 @@ const MAX_RUN_DEFAULT: u16 = 255;
 
 const ALAC_COMPATIBLE_VERSION: u8 = 0;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 enum ElementType {
     /// Single Channel Element
@@ -44,9 +45,9 @@ enum ElementType {
     /// LFE Channel Element
     LFE = 3,
     // not yet supported
-    // DSE = 4,
-    // PCE = 5,
-    // FIL = 6,
+    DSE = 4,
+    PCE = 5,
+    FIL = 6,
     END = 7,
     /// invalid
     NIL = 255,
