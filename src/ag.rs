@@ -56,68 +56,47 @@ impl AgParams {
 }
 
 #[inline(always)]
-fn dyn_code(m: u32, k: u32, n: u32, out_num_bits: &mut u32) -> u32 {
+fn dyn_code(bitstream: &mut BitBuffer, m: u32, k: u32, n: u32) {
     let division = n / m;
-
-    let mut num_bits: u32;
-    let mut value: u32;
 
     if division < MAX_PREFIX_16 {
         let modulo = n % m;
         let de = (modulo == 0) as u32;
-        num_bits = division + k + 1 - de;
-        value = (((1 << division) - 1) << (num_bits - division)) + modulo + 1 - de;
+        let num_bits = division + k + 1 - de;
+        let value = (((1 << division) - 1) << (num_bits - division)) + modulo + 1 - de;
 
-        // if coding this way is bigger than doing escape, then do escape
-        if num_bits > (MAX_PREFIX_16 + MAX_DATATYPE_BITS_16) {
-            num_bits = MAX_PREFIX_16 + MAX_DATATYPE_BITS_16;
-            value = (((1 << MAX_PREFIX_16) - 1) << MAX_DATATYPE_BITS_16) + n;
+        // use this result if coding this way is smaller than doing escape
+        if num_bits <= (MAX_PREFIX_16 + MAX_DATATYPE_BITS_16) {
+            bitstream.write_lte25(value, num_bits);
+            return;
         }
-    } else {
-        num_bits = MAX_PREFIX_16 + MAX_DATATYPE_BITS_16;
-        value = (((1 << MAX_PREFIX_16) - 1) << MAX_DATATYPE_BITS_16) + n;
     }
 
-    *out_num_bits = num_bits;
+    let num_bits = MAX_PREFIX_16 + MAX_DATATYPE_BITS_16;
+    let value = (((1 << MAX_PREFIX_16) - 1) << MAX_DATATYPE_BITS_16) + n;
 
-    return value;
+    bitstream.write_lte25(value, num_bits);
 }
 
 #[inline(always)]
-fn dyn_code_32bit(maxbits: usize, m: u32, k: u32, n: u32, out_num_bits: &mut u32, out_value: &mut u32, overflow: &mut u32, overflowbits: &mut u32) -> bool {
+fn dyn_code_32bit(bitstream: &mut BitBuffer, maxbits: usize, m: u32, k: u32, n: u32) {
     let division = (n / m) as u32;
-
-    let mut num_bits: u32;
-    let mut value: u32;
-
-    let mut did_overflow = false;
 
     if division < MAX_PREFIX_32 {
         let modulo: u32 = n - (m * division);
         let de = (modulo == 0) as u32;
 
-        num_bits = division + k + 1 - de;
-        value = (((1<<division)-1)<<(num_bits-division)) + modulo + 1 - de;
+        let num_bits = division + k + 1 - de;
+        let value = (((1<<division)-1)<<(num_bits-division)) + modulo + 1 - de;
 
-        if num_bits > 25 {
-            num_bits = MAX_PREFIX_32;
-            value = (1 << MAX_PREFIX_32) - 1;
-            *overflow = n;
-            *overflowbits = maxbits as u32;
-            did_overflow = true;
+        if num_bits <= 25 {
+            bitstream.write_lte25(value, num_bits);
+            return;
         }
-    } else {
-        num_bits = MAX_PREFIX_32;
-        value = (1 << MAX_PREFIX_32) - 1;
-        *overflow = n;
-        *overflowbits = maxbits as u32;
-        did_overflow = true;
     }
 
-    *out_num_bits = num_bits;
-    *out_value = value;
-
-    return did_overflow;
+    bitstream.write_lte25((1 << MAX_PREFIX_32) - 1, MAX_PREFIX_32);
+    bitstream.write(n, maxbits as u32);
 }
 
 pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_samples: usize, bit_size: usize) -> usize {
@@ -136,8 +115,8 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
     let row_jump = params.fw as usize - row_size;
     let mut in_ptr = 0usize;
 
-    let mut c: u32 = 0;
-    while c < (num_samples as u32) {
+    let mut c = 0usize;
+    while c < num_samples {
         let k = cmp::min(31 - ((mb >> QBSHIFT) + 3).leading_zeros(), kb);
         let m = (1 << k) - 1;
 
@@ -148,19 +127,7 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
         let n: u32 = ((del.abs() << 1) - ((del >> 31) & 1)) as u32 - zmode;
         assert!(32 - n.leading_zeros() <= bit_size as u32);
 
-        {
-            let mut num_bits: u32 = 0;
-            let mut value: u32 = 0;
-            let mut overflow: u32 = 0;
-            let mut overflowbits: u32 = 0;
-
-            if dyn_code_32bit(bit_size, m, k, n, &mut num_bits, &mut value, &mut overflow, &mut overflowbits) {
-                bitstream.write_lte25(value, num_bits);
-                bitstream.write(overflow, overflowbits);
-            } else {
-                bitstream.write_lte25(value, num_bits);
-            }
-        }
+        dyn_code_32bit(bitstream, bit_size, m, k, n);
 
         c += 1;
         if row_pos >= row_size {
@@ -177,13 +144,13 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
 
         zmode = 0;
 
-        assert!(c <= (num_samples as u32));
+        assert!(c <= num_samples);
 
-        if ((mb << MMULSHIFT) < QB) && (c < (num_samples as u32)) {
+        if ((mb << MMULSHIFT) < QB) && (c < num_samples) {
             zmode = 1;
             let mut nz = 0u32;
 
-            while (c < (num_samples as u32)) && (pc[in_ptr] == 0) {
+            while (c < num_samples) && (pc[in_ptr] == 0) {
                 // Take care of wrap-around globals.
                 in_ptr += 1;
                 nz += 1;
@@ -204,9 +171,7 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
             let k = mb.leading_zeros() - BITOFF + ((mb + MOFF) >> MDENSHIFT);
             let mz = ((1 << k) - 1) & wb;
 
-            let mut num_bits: u32 = 0;
-            let value: u32 = dyn_code(mz, k, nz, &mut num_bits);
-            bitstream.write_lte25(value, num_bits);
+            dyn_code(bitstream, mz, k, nz);
 
             mb = 0;
         }
