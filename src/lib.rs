@@ -340,7 +340,7 @@ impl AlacEncoder {
                             // mono
                             bitstream.write_lte25(mono_element_tag, 4);
                             let input_size = input_increment * 1;
-                            self.encode_mono(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
+                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
                             input_position += input_size;
                             channel_index += 1;
                             mono_element_tag += 1;
@@ -349,7 +349,7 @@ impl AlacEncoder {
                             // stereo
                             bitstream.write_lte25(stereo_element_tag, 4);
                             let input_size = input_increment * 2;
-                            self.encode_stereo(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
+                            self.encode_stereo(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
                             input_position += input_size;
                             channel_index += 2;
                             stereo_element_tag += 1;
@@ -358,7 +358,7 @@ impl AlacEncoder {
                             // LFE channel (subwoofer)
                             bitstream.write_lte25(lfe_element_tag, 4);
                             let input_size = input_increment * 1;
-                            self.encode_mono(&mut bitstream, &input_data[input_position..(input_position + input_size)], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
+                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
                             input_position += input_size;
                             channel_index += 1;
                             lfe_element_tag += 1;
@@ -593,7 +593,7 @@ impl AlacEncoder {
             },
             20 => {
                 // mix20() with mixres param = 0 means de-interleave so use it to simplify things
-                unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, 0, 0); }
+                matrix::mix20(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, 0, 0);
                 for index in 0..num_samples {
                     bitstream.write_lte25(self.mix_buffer_u[index] as u32, 20);
                     bitstream.write_lte25(self.mix_buffer_v[index] as u32, 20);
@@ -601,7 +601,7 @@ impl AlacEncoder {
             },
             24 => {
                 // mix24() with mixres param = 0 means de-interleave so use it to simplify things
-                unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, 0, 0, self.shift_buffer_uv.as_mut_ptr(), 0); }
+                matrix::mix24(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, 0, 0, &mut self.shift_buffer_uv, 0);
                 for index in 0..num_samples {
                     bitstream.write_lte25(self.mix_buffer_u[index] as u32, 24);
                     bitstream.write_lte25(self.mix_buffer_v[index] as u32, 24);
@@ -668,18 +668,18 @@ impl AlacEncoder {
             // mix the stereo inputs
             match self.bit_depth {
                 16 => {
-                    unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res); }
+                    matrix::mix16(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res);
                 },
                 20 => {
-                    unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res); }
+                    matrix::mix20(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res);
                 },
                 24 => {
                     // includes extraction of shifted-off bytes
-                    unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
+                    matrix::mix24(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
                 },
                 32 => {
                     // includes extraction of shifted-off bytes
-                    unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), (num_samples / dilate) as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
+                    matrix::mix32(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
                 },
                 _ => panic!("Invalid mBitDepth"),
             }
@@ -707,18 +707,18 @@ impl AlacEncoder {
         let mix_res: i32 = self.last_mix_res[channel_index] as i32;
         match self.bit_depth {
             16 => {
-                unsafe { bindings::mix16(input.as_ptr() as *const i16 as *mut i16, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res); }
+                matrix::mix16(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res);
             },
             20 => {
-                unsafe { bindings::mix20(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res); }
+                matrix::mix20(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res);
             },
             24 => {
                 // also extracts the shifted off bytes into the shift buffers
-                unsafe { bindings::mix24(input.as_ptr() as *mut u8, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
+                matrix::mix24(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
             },
             32 => {
                 // also extracts the shifted off bytes into the shift buffers
-                unsafe { bindings::mix32(input.as_ptr() as *const i32 as *mut i32, stride as u32, self.mix_buffer_u.as_mut_ptr(), self.mix_buffer_v.as_mut_ptr(), num_samples as i32, mix_bits, mix_res, self.shift_buffer_uv.as_mut_ptr(), bytes_shifted as i32); }
+                matrix::mix32(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
             },
             _ => panic!("Invalid mBitDepth"),
         }
