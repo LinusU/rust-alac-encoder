@@ -6,6 +6,8 @@ const AINIT: i32 = 38;
 const BINIT: i32 = -29;
 const CINIT: i32 = -2;
 
+pub const DENSHIFT_DEFAULT: u32 = 9;
+
 #[allow(dead_code)]
 #[repr(i32)]
 enum Sign {

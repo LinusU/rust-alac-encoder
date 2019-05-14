@@ -209,8 +209,8 @@ impl AlacEncoder {
         // initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
         for channel in 0..(num_channels as usize) {
             for search in 0..MAX_SEARCHES {
-                dp::init_coefs(&mut coefs_u[channel][search], bindings::DENSHIFT_DEFAULT);
-                dp::init_coefs(&mut coefs_v[channel][search], bindings::DENSHIFT_DEFAULT);
+                dp::init_coefs(&mut coefs_u[channel][search], dp::DENSHIFT_DEFAULT);
+                dp::init_coefs(&mut coefs_v[channel][search], dp::DENSHIFT_DEFAULT);
             }
         }
 
@@ -459,11 +459,11 @@ impl AlacEncoder {
         for num_u in (min_u..max_u).step_by(4) {
             let dilate = 32usize;
             for _ in 0..7 {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, dp::DENSHIFT_DEFAULT);
             }
 
             let dilate = 8usize;
-            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, dp::DENSHIFT_DEFAULT);
 
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
@@ -497,7 +497,7 @@ impl AlacEncoder {
             bitstream.write_lte25(0, 16); // mixBits = mixRes = 0
 
             // write the params and predictor coefs
-            bitstream.write_lte25((0 << 4) | bindings::DENSHIFT_DEFAULT, 8); // modeU = 0
+            bitstream.write_lte25((0 << 4) | dp::DENSHIFT_DEFAULT, 8); // modeU = 0
             bitstream.write_lte25(((pb_factor as u32) << 5) | (best_u as u32), 8);
             for index in 0..best_u {
                 bitstream.write_lte25(coefs_u[(best_u as usize) - 1][index] as u32, 16);
@@ -511,7 +511,7 @@ impl AlacEncoder {
             }
 
             // run the dynamic predictor with the best result
-            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[best_u - 1], best_u, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[best_u - 1], best_u, chan_bits as usize, dp::DENSHIFT_DEFAULT);
 
             // do lossless compression
             let ag_params = AgParams::new_standard(num_samples as u32, num_samples as u32);
@@ -685,8 +685,8 @@ impl AlacEncoder {
             }
 
             // run the dynamic predictors
-            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
-            dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
 
             // run the lossless compressor on each channel
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
@@ -733,8 +733,8 @@ impl AlacEncoder {
             let dilate = 32usize;
 
             for _ in 0..8 {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_uv as usize) - 1], num_uv as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
-                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_uv as usize) - 1], num_uv as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_uv as usize) - 1], num_uv as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_uv as usize) - 1], num_uv as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
             }
 
             let dilate = 8usize;
@@ -779,17 +779,17 @@ impl AlacEncoder {
             bitstream.write_lte25(mix_bits as u32, 8);
             bitstream.write_lte25(mix_res as u32, 8);
 
-            assert!((mode < 16) && (bindings::DENSHIFT_DEFAULT < 16));
+            assert!((mode < 16) && (dp::DENSHIFT_DEFAULT < 16));
             assert!((pb_factor < 8) && (num_u < 32));
             assert!((pb_factor < 8) && (num_v < 32));
 
-            bitstream.write_lte25((mode << 4) | bindings::DENSHIFT_DEFAULT, 8);
+            bitstream.write_lte25((mode << 4) | dp::DENSHIFT_DEFAULT, 8);
             bitstream.write_lte25((pb_factor << 5) | (num_u as u32), 8);
             for index in 0..num_u {
                 bitstream.write_lte25(coefs_u[(num_u as usize) - 1][index as usize] as u32, 16);
             }
 
-            bitstream.write_lte25((mode << 4) | bindings::DENSHIFT_DEFAULT, 8);
+            bitstream.write_lte25((mode << 4) | dp::DENSHIFT_DEFAULT, 8);
             bitstream.write_lte25((pb_factor << 5) | (num_v as u32), 8);
             for index in 0..num_v {
                 bitstream.write_lte25(coefs_v[(num_v as usize) - 1][index as usize] as u32, 16);
@@ -810,9 +810,9 @@ impl AlacEncoder {
             // - note: to avoid allocating more buffers, we're mixing and matching between the available buffers instead
             //   of only using "U" buffers for the U-channel and "V" buffers for the V-channel
             if mode == 0 {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
             } else {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_v, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_v, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
                 dp::pc_block(&self.predictor_v, &mut self.predictor_u, num_samples, &mut [], 31, chan_bits as usize, 0);
             }
 
@@ -821,9 +821,9 @@ impl AlacEncoder {
 
             // run the dynamic predictor and lossless compression for the "right" channel
             if mode == 0 {
-                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
             } else {
-                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_u, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, bindings::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_u, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
                 dp::pc_block(&self.predictor_u, &mut self.predictor_v, num_samples, &mut [], 31, chan_bits as usize, 0);
             }
 
