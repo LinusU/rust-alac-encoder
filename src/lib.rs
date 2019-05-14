@@ -106,9 +106,17 @@ impl PcmFormat for i16 {
     fn flags() -> u32 { bindings::kALACFormatFlagsNativeEndian | bindings::kALACFormatFlagIsSignedInteger }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FormatType {
+    /// Apple Lossless
+    AppleLossless,
+    /// Linear PCM
+    LinearPcm,
+}
+
 pub struct FormatDescription {
     sample_rate: f64,
-    format_id: u32,
+    format_id: FormatType,
     format_flags: u32,
     bytes_per_packet: u32,
     frames_per_packet: u32,
@@ -120,7 +128,7 @@ impl FormatDescription {
     pub fn pcm<T: PcmFormat>(sample_rate: f64, channels: u32) -> FormatDescription {
         FormatDescription {
             sample_rate,
-            format_id: bindings::kALACFormatLinearPCM,
+            format_id: FormatType::LinearPcm,
             format_flags: T::flags(),
             bytes_per_packet: channels * T::bytes(),
             frames_per_packet: 1,
@@ -132,7 +140,7 @@ impl FormatDescription {
     pub fn alac(sample_rate: f64, frames_per_packet: u32, channels: u32) -> FormatDescription {
         FormatDescription {
             sample_rate,
-            format_id: bindings::kALACFormatAppleLossless,
+            format_id: FormatType::AppleLossless,
             format_flags: 1,
             bytes_per_packet: 0,
             frames_per_packet,
@@ -175,7 +183,7 @@ pub struct AlacEncoder {
 
 impl AlacEncoder {
     pub fn new(output_format: &FormatDescription) -> AlacEncoder {
-        assert_eq!(output_format.format_id, bindings::kALACFormatAppleLossless);
+        assert_eq!(output_format.format_id, FormatType::AppleLossless);
 
         let bit_depth = match output_format.format_flags {
             1 => 16,
@@ -295,6 +303,8 @@ impl AlacEncoder {
     }
 
     pub fn encode(&mut self, input_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> Result<usize, Error> {
+        assert_eq!(input_format.format_id, FormatType::LinearPcm);
+
         let num_frames = input_data.len() as u32 / input_format.bytes_per_packet;
 
         let minimum_buffer_size = (self.frame_size * (self.num_channels as usize) * (((10 + self.bits_per_channel) / 8) + 1)) + MAX_ESCAPE_HEADER_BYTES;
