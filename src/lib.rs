@@ -222,16 +222,8 @@ impl AlacEncoder {
         }
     }
 
-    pub fn get_magic_cookie_size(num_channels: u32) -> usize {
-        if num_channels > 2 {
-            24 /* ALACSpecificConfig */ + 24 /* ALACAudioChannelLayout */
-        } else {
-            24 /* ALACSpecificConfig */
-        }
-    }
-
-    pub fn get_magic_cookie(&self) -> Vec<u8> {
-        let mut result = Vec::with_capacity(AlacEncoder::get_magic_cookie_size(self.num_channels));
+    pub fn magic_cookie(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(if self.num_channels > 2 { 48 } else { 24 });
 
         /* ALACSpecificConfig */
         result.write_u32::<BE>(self.frame_size as u32).unwrap();
@@ -831,7 +823,7 @@ mod tests {
         let mut output = vec![0u8; (frame_size as usize * channels as usize * 2) + MAX_ESCAPE_HEADER_BYTES];
 
         let mut result = EncodingResult {
-            magic_cookie: encoder.get_magic_cookie(),
+            magic_cookie: encoder.magic_cookie(),
             alac_chunks: Vec::new(),
         };
 
