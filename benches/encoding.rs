@@ -14,7 +14,7 @@ fn test_case (input: &str, frame_size: u32, channels: u32) {
     let mut output = vec![0u8; (frame_size as usize * channels as usize * 2) + MAX_ESCAPE_HEADER_BYTES];
 
     for chunk in pcm.chunks(frame_size as usize * channels as usize * 2) {
-        let size = encoder.encode(&input_format, &chunk, &mut output).unwrap();
+        let size = encoder.encode(&input_format, &chunk, &mut output);
         black_box(Vec::from(&output[0..size]));
     }
 }

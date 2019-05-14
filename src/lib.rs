@@ -63,27 +63,6 @@ const CHANNEL_MAPS: [[ElementType; MAX_CHANNELS]; MAX_CHANNELS] = [
     [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::SCE],
 ];
 
-#[derive(Debug)]
-pub enum Error {
-    Unimplemented,
-    FileNotFound,
-    Param,
-    MemFull,
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::Unimplemented => write!(f, "kALAC_UnimplementedError"),
-            Error::FileNotFound => write!(f, "kALAC_FileNotFoundError"),
-            Error::Param => write!(f, "kALAC_ParamError"),
-            Error::MemFull => write!(f, "kALAC_MemFullError"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
 pub trait PcmFormat {
     fn bits() -> u32;
     fn bytes() -> u32;
@@ -292,7 +271,7 @@ impl AlacEncoder {
         result
     }
 
-    pub fn encode(&mut self, input_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> Result<usize, Error> {
+    pub fn encode(&mut self, input_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> usize {
         assert_eq!(input_format.format_id, FormatType::LinearPcm);
 
         let num_frames = input_data.len() as u32 / input_format.bytes_per_packet;
@@ -311,7 +290,7 @@ impl AlacEncoder {
                 bitstream.write_lte25(0, 4);
 
                 // encode mono input buffer
-                self.encode_mono(&mut bitstream, input_data, 1, 0, num_frames as usize)?;
+                self.encode_mono(&mut bitstream, input_data, 1, 0, num_frames as usize);
             },
             2 => {
                 // add 3-bit frame start tag ID_CPE = channel pair & 4-bit element instance tag = 0
@@ -319,7 +298,7 @@ impl AlacEncoder {
                 bitstream.write_lte25(0, 4);
 
                 // encode stereo input buffer
-                self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames as usize)?;
+                self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames as usize);
             },
             3...8 => {
                 let input_increment = ((self.bit_depth + 7) / 8) as usize;
@@ -340,7 +319,7 @@ impl AlacEncoder {
                             // mono
                             bitstream.write_lte25(mono_element_tag, 4);
                             let input_size = input_increment * 1;
-                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
+                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize);
                             input_position += input_size;
                             channel_index += 1;
                             mono_element_tag += 1;
@@ -349,7 +328,7 @@ impl AlacEncoder {
                             // stereo
                             bitstream.write_lte25(stereo_element_tag, 4);
                             let input_size = input_increment * 2;
-                            self.encode_stereo(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
+                            self.encode_stereo(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize);
                             input_position += input_size;
                             channel_index += 2;
                             stereo_element_tag += 1;
@@ -358,7 +337,7 @@ impl AlacEncoder {
                             // LFE channel (subwoofer)
                             bitstream.write_lte25(lfe_element_tag, 4);
                             let input_size = input_increment * 1;
-                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize)?;
+                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize);
                             input_position += input_size;
                             channel_index += 1;
                             lfe_element_tag += 1;
@@ -385,19 +364,11 @@ impl AlacEncoder {
         self.total_bytes_generated += output_size;
         self.max_frame_bytes = std::cmp::max(self.max_frame_bytes, output_size as u32);
 
-        Ok(output_size)
+        output_size
     }
 
-    fn encode_mono(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) -> Result<(), Error> {
+    fn encode_mono(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) {
         let start_position = bitstream.position();
-
-        match self.bit_depth {
-            16 => {},
-            20 => {},
-            24 => {},
-            32 => {},
-            _ => return Err(Error::Param),
-        }
 
         // reload coefs array from previous frame
         let coefs_u = &mut self.coefs_u[channel_index];
@@ -566,11 +537,9 @@ impl AlacEncoder {
                 _ => panic!("Invalid mBitDepth"),
             }
         }
-
-        Ok(())
     }
 
-    fn encode_stereo_escape(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, num_samples: usize) -> Result<(), Error> {
+    fn encode_stereo_escape(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, num_samples: usize) {
         // flag whether or not this is a partial frame
         let partial_frame: u8 = if num_samples == (self.frame_size) { 0 } else { 1 };
 
@@ -617,20 +586,10 @@ impl AlacEncoder {
             },
             _ => panic!("Invalid mBitDepth"),
         }
-
-        Ok(())
     }
 
-    fn encode_stereo(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) -> Result<(), Error> {
+    fn encode_stereo(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, channel_index: usize, num_samples: usize) {
         let start_position = bitstream.position();
-
-        match self.bit_depth {
-            16 => {},
-            20 => {},
-            24 => {},
-            32 => {},
-            _ => return Err(Error::Param),
-        }
 
         // reload coefs pointers for this channel pair
         // - note that, while you might think they should be re-initialized per block, retaining state across blocks
@@ -841,10 +800,8 @@ impl AlacEncoder {
         }
 
         if do_escape == true {
-            self.encode_stereo_escape(bitstream, input, stride, num_samples)?;
+            self.encode_stereo_escape(bitstream, input, stride, num_samples);
         }
-
-        Ok(())
     }
 }
 
@@ -879,7 +836,7 @@ mod tests {
         };
 
         for chunk in pcm.chunks(frame_size as usize * channels as usize * 2) {
-            let size = encoder.encode(&input_format, &chunk, &mut output).unwrap();
+            let size = encoder.encode(&input_format, &chunk, &mut output);
             result.alac_chunks.push(Vec::from(&output[0..size]));
         }
 
