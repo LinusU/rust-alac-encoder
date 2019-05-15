@@ -14,7 +14,9 @@ pub const DEFAULT_FRAMES_PER_PACKET: u32 = 4096;
 // 4 & 5 channels seems to overflow by one byte
 // 6 channels seems to overflow by four bytes
 // 7 & 8 channels seems to overflow by seven bytes
-pub const MAX_ESCAPE_HEADER_BYTES: usize = 8 + 7;
+// The last, smaller, packet can also overflow by 20 bytes on top of this
+// 8 + 7 + 20 = 35, make it 40 for good measurement
+pub const MAX_ESCAPE_HEADER_BYTES: usize = 40;
 
 const MAX_CHANNELS: usize = 8;
 const MAX_SAMPLE_SIZE: usize = 32;
@@ -285,7 +287,7 @@ impl AlacEncoder {
         let num_frames = input_data.len() / (input_format.bytes_per_packet as usize);
         assert!(num_frames <= self.frame_size);
 
-        let minimum_buffer_size = (self.frame_size * (self.num_channels as usize) * (((10 + self.bits_per_channel) / 8) + 1)) + MAX_ESCAPE_HEADER_BYTES;
+        let minimum_buffer_size = (num_frames * (self.num_channels as usize) * (((10 + self.bits_per_channel) / 8) + 1)) + MAX_ESCAPE_HEADER_BYTES;
         assert!(output_data.len() >= minimum_buffer_size);
 
         // create a bit buffer structure pointing to our output buffer
