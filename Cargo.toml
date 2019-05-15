@@ -6,6 +6,7 @@ edition = "2018"
 
 description = "Rust port of Apple's open source ALAC library"
 repository = "https://github.com/LinusU/rust-alac-encoder"
+readme = "readme.md"
 keywords = ["alac", "apple", "audio", "encoder", "format"]
 categories = ["compression", "encoding", "multimedia", "multimedia::encoding"]
 license = "Apache-2.0 OR MIT"
