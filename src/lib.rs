@@ -266,7 +266,8 @@ impl AlacEncoder {
     pub fn encode(&mut self, input_format: &FormatDescription, input_data: &[u8], output_data: &mut [u8]) -> usize {
         assert_eq!(input_format.format_id, FormatType::LinearPcm);
 
-        let num_frames = input_data.len() as u32 / input_format.bytes_per_packet;
+        let num_frames = input_data.len() / (input_format.bytes_per_packet as usize);
+        assert!(num_frames <= self.frame_size);
 
         let minimum_buffer_size = (self.frame_size * (self.num_channels as usize) * (((10 + self.bits_per_channel) / 8) + 1)) + MAX_ESCAPE_HEADER_BYTES;
         assert!(output_data.len() >= minimum_buffer_size);
@@ -282,7 +283,7 @@ impl AlacEncoder {
                 bitstream.write_lte25(0, 4);
 
                 // encode mono input buffer
-                self.encode_mono(&mut bitstream, input_data, 1, 0, num_frames as usize);
+                self.encode_mono(&mut bitstream, input_data, 1, 0, num_frames);
             },
             2 => {
                 // add 3-bit frame start tag ID_CPE = channel pair & 4-bit element instance tag = 0
@@ -290,7 +291,7 @@ impl AlacEncoder {
                 bitstream.write_lte25(0, 4);
 
                 // encode stereo input buffer
-                self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames as usize);
+                self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames);
             },
             3...8 => {
                 let input_increment = ((self.bit_depth + 7) / 8) as usize;
@@ -311,7 +312,7 @@ impl AlacEncoder {
                             // mono
                             bitstream.write_lte25(mono_element_tag, 4);
                             let input_size = input_increment * 1;
-                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize);
+                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames);
                             input_position += input_size;
                             channel_index += 1;
                             mono_element_tag += 1;
@@ -320,7 +321,7 @@ impl AlacEncoder {
                             // stereo
                             bitstream.write_lte25(stereo_element_tag, 4);
                             let input_size = input_increment * 2;
-                            self.encode_stereo(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize);
+                            self.encode_stereo(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames);
                             input_position += input_size;
                             channel_index += 2;
                             stereo_element_tag += 1;
@@ -329,7 +330,7 @@ impl AlacEncoder {
                             // LFE channel (subwoofer)
                             bitstream.write_lte25(lfe_element_tag, 4);
                             let input_size = input_increment * 1;
-                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames as usize);
+                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames);
                             input_position += input_size;
                             channel_index += 1;
                             lfe_element_tag += 1;
