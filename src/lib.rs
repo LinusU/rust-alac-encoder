@@ -222,6 +222,22 @@ impl AlacEncoder {
         }
     }
 
+    pub fn bit_depth(&self) -> usize {
+        self.bit_depth as usize
+    }
+
+    pub fn channels(&self) -> usize {
+        self.num_channels as usize
+    }
+
+    pub fn frames(&self) -> usize {
+        self.frame_size
+    }
+
+    pub fn sample_rate(&self) -> usize {
+        self.output_sample_rate as usize
+    }
+
     pub fn magic_cookie(&self) -> Vec<u8> {
         let mut result = Vec::with_capacity(if self.num_channels > 2 { 48 } else { 24 });
 
