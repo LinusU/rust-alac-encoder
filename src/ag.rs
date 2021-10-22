@@ -5,11 +5,11 @@ use std::cmp;
 use crate::bit_buffer::BitBuffer;
 
 const QBSHIFT: u32 = 9;
-const QB: u32 = (1 << QBSHIFT);
+const QB: u32 = 1 << QBSHIFT;
 
 const MMULSHIFT: u32 = 2;
-const MDENSHIFT: u32 = (QBSHIFT - MMULSHIFT - 1);
-const MOFF: u32 = ((1<<(MDENSHIFT-2)));
+const MDENSHIFT: u32 = QBSHIFT - MMULSHIFT - 1;
+const MOFF: u32 = 1 << (MDENSHIFT-2);
 
 const BITOFF: u32 = 24;
 

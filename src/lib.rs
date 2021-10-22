@@ -311,7 +311,7 @@ impl AlacEncoder {
                 // encode stereo input buffer
                 self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames);
             },
-            3...8 => {
+            3..=8 => {
                 let input_increment = ((self.bit_depth + 7) / 8) as usize;
                 let mut input_position = 0usize;
 
