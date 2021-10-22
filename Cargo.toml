@@ -15,7 +15,7 @@ exclude = ["fixtures/*"]
 
 [dev-dependencies]
 bincode = "^1.1.3"
-criterion = "^0.2.11"
+criterion = "^0.3.5"
 serde = { version = "^1.0.90", features = ["derive"] }
 
 [dependencies]
