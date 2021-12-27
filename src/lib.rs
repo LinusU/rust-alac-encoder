@@ -1,10 +1,16 @@
+#![no_std]
+
+#[macro_use]
+extern crate alloc;
+
 mod ag;
 mod bit_buffer;
 mod dp;
 mod matrix;
 
+use alloc::vec::Vec;
+
 use ag::AgParams;
-use byteorder::{BE, WriteBytesExt};
 use bit_buffer::BitBuffer;
 use log::debug;
 
@@ -245,17 +251,17 @@ impl AlacEncoder {
         let mut result = Vec::with_capacity(if self.num_channels > 2 { 48 } else { 24 });
 
         /* ALACSpecificConfig */
-        result.write_u32::<BE>(self.frame_size as u32).unwrap();
-        result.write_u8(ALAC_COMPATIBLE_VERSION).unwrap();
-        result.write_u8(self.bit_depth as u8).unwrap();
-        result.write_u8(ag::PB0 as u8).unwrap();
-        result.write_u8(ag::MB0 as u8).unwrap();
-        result.write_u8(ag::KB0 as u8).unwrap();
-        result.write_u8(self.num_channels as u8).unwrap();
-        result.write_u16::<BE>(MAX_RUN_DEFAULT).unwrap();
-        result.write_u32::<BE>(self.max_frame_bytes).unwrap();
-        result.write_u32::<BE>(self.avg_bit_rate).unwrap();
-        result.write_u32::<BE>(self.output_sample_rate).unwrap();
+        result.extend(u32::to_be_bytes(self.frame_size as u32));
+        result.push(ALAC_COMPATIBLE_VERSION);
+        result.push(self.bit_depth as u8);
+        result.push(ag::PB0 as u8);
+        result.push(ag::MB0 as u8);
+        result.push(ag::KB0 as u8);
+        result.push(self.num_channels as u8);
+        result.extend(u16::to_be_bytes(MAX_RUN_DEFAULT));
+        result.extend(u32::to_be_bytes(self.max_frame_bytes));
+        result.extend(u32::to_be_bytes(self.avg_bit_rate));
+        result.extend(u32::to_be_bytes(self.output_sample_rate));
 
         /* ALACAudioChannelLayout */
         if self.num_channels > 2 {
@@ -271,12 +277,12 @@ impl AlacEncoder {
                 _ => panic!("Unsuported number of channels"),
             };
 
-            result.write_u32::<BE>(24).unwrap();
+            result.extend(u32::to_be_bytes(24));
             result.extend(&['c' as u8, 'h' as u8, 'a' as u8, 'n' as u8]);
-            result.write_u32::<BE>(0).unwrap();
+            result.extend(u32::to_be_bytes(0));
             result.extend(&channel_layout_tag);
-            result.write_u32::<BE>(0).unwrap();
-            result.write_u32::<BE>(0).unwrap();
+            result.extend(u32::to_be_bytes(0));
+            result.extend(u32::to_be_bytes(0));
         }
 
         result
@@ -374,7 +380,7 @@ impl AlacEncoder {
         assert!(output_size <= self.max_output_bytes);
 
         self.total_bytes_generated += output_size;
-        self.max_frame_bytes = std::cmp::max(self.max_frame_bytes, output_size as u32);
+        self.max_frame_bytes = core::cmp::max(self.max_frame_bytes, output_size as u32);
 
         output_size
     }
@@ -399,7 +405,7 @@ impl AlacEncoder {
         match self.bit_depth {
             16 => {
                 // convert 16-bit data to 32-bit for predictor
-                let input16 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
+                let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
                 for index in 0..num_samples {
                     self.mix_buffer_u[index] = input16[index * stride] as i32;
                 }
@@ -418,7 +424,7 @@ impl AlacEncoder {
             },
             32 => {
                 // just copy the 32-bit input data for the predictor and extract the shifted off byte(s)
-                let input32 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
+                let input32 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
 
                 for index in 0..num_samples {
                     let val = input32[index * stride];
@@ -521,7 +527,7 @@ impl AlacEncoder {
             // just copy the input data to the output buffer
             match self.bit_depth {
                 16 => {
-                    let input16 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i16 as *mut i16, num_samples * stride) };
+                    let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16 as *mut i16, num_samples * stride) };
                     for index in (0..(num_samples * stride)).step_by(stride) {
                         bitstream.write_lte25(input16[index] as u32, 16);
                     }
@@ -541,7 +547,7 @@ impl AlacEncoder {
                     }
                 },
                 32 => {
-                    let input32 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
+                    let input32 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
                     for index in (0..(num_samples * stride)).step_by(stride) {
                         bitstream.write(input32[index] as u32, 32);
                     }
@@ -565,7 +571,7 @@ impl AlacEncoder {
         // just copy the input data to the output buffer
         match self.bit_depth {
             16 => {
-                let input16 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
+                let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
 
                 for index in (0..(num_samples * stride)).step_by(stride) {
                     bitstream.write_lte25(input16[index + 0] as u32, 16);
@@ -589,7 +595,7 @@ impl AlacEncoder {
                 }
             },
             32 => {
-                let input32 = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
+                let input32 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
 
                 for index in (0..(num_samples * stride)).step_by(stride) {
                     bitstream.write(input32[index + 0] as u32, 32);
@@ -819,9 +825,11 @@ impl AlacEncoder {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use super::{AlacEncoder, FormatDescription, MAX_ESCAPE_HEADER_BYTES};
 
-    use std::fs;
+    use std::{fs, vec::Vec};
 
     use bincode::{deserialize};
     use serde::{Serialize, Deserialize};

@@ -1,3 +1,5 @@
+extern crate std;
+
 use std::fs;
 
 use alac_encoder::{AlacEncoder, FormatDescription, MAX_ESCAPE_HEADER_BYTES};
