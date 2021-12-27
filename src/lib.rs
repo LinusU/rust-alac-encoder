@@ -6,6 +6,7 @@ mod matrix;
 use ag::AgParams;
 use byteorder::{BE, WriteBytesExt};
 use bit_buffer::BitBuffer;
+use log::debug;
 
 pub const DEFAULT_FRAME_SIZE: usize = 4096;
 pub const DEFAULT_FRAMES_PER_PACKET: u32 = 4096;
@@ -505,7 +506,7 @@ impl AlacEncoder {
             if min_bits >= escape_bits {
                 bitstream.set_position(start_position);
                 do_escape = true;
-                println!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
+                debug!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
             }
         }
 
@@ -806,7 +807,7 @@ impl AlacEncoder {
             if min_bits >= escape_bits {
                 bitstream.set_position(start_position);
                 do_escape = true;
-                println!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
+                debug!("compressed frame too big: {} vs. {}", min_bits, escape_bits);
             }
         }
 
