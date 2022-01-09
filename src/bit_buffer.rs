@@ -13,7 +13,8 @@ impl<'a> BitBuffer<'a> {
     }
 
     pub fn write_lte25(&mut self, bit_values: u32, num_bits: u32) {
-        assert!(num_bits > 0 && num_bits <= 25);
+        debug_assert!(num_bits > 0 && num_bits <= 25);
+        debug_assert!(self.position + (num_bits as usize) <= self.buffer.len() * 8);
 
         let target = unsafe { self.buffer.as_mut_ptr().add(self.position >> 3) as *mut u32 };
         let shift = 32 - ((self.position as u32) & 7) - num_bits;
@@ -29,7 +30,8 @@ impl<'a> BitBuffer<'a> {
     }
 
     pub fn write(&mut self, bit_values: u32, num_bits: u32) {
-        assert!(num_bits > 0 && num_bits <= 32);
+        debug_assert!(num_bits > 0 && num_bits <= 32);
+        debug_assert!(self.position + (num_bits as usize) <= self.buffer.len() * 8);
 
         let target = unsafe { self.buffer.as_mut_ptr().add(self.position >> 3) as *mut u32 };
         let shift = (32 - ((self.position as i32) & 7) - (num_bits as i32)) as i32;

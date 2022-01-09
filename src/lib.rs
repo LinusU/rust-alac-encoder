@@ -359,8 +359,8 @@ impl AlacEncoder {
         bitstream.byte_align();
 
         let output_size = bitstream.position() / 8;
-        assert!(output_size <= bitstream.len());
-        assert!(output_size <= self.max_output_bytes);
+        debug_assert!(output_size <= bitstream.len());
+        debug_assert!(output_size <= self.max_output_bytes);
 
         self.total_bytes_generated += output_size;
         self.max_frame_bytes = core::cmp::max(self.max_frame_bytes, output_size as u32);
@@ -742,9 +742,9 @@ impl AlacEncoder {
             bitstream.write_lte25(mix_bits as u32, 8);
             bitstream.write_lte25(mix_res as u32, 8);
 
-            assert!((mode < 16) && (dp::DENSHIFT_DEFAULT < 16));
-            assert!((pb_factor < 8) && (num_u < 32));
-            assert!((pb_factor < 8) && (num_v < 32));
+            debug_assert!((mode < 16) && (dp::DENSHIFT_DEFAULT < 16));
+            debug_assert!((pb_factor < 8) && (num_u < 32));
+            debug_assert!((pb_factor < 8) && (num_v < 32));
 
             bitstream.write_lte25((mode << 4) | dp::DENSHIFT_DEFAULT, 8);
             bitstream.write_lte25((pb_factor << 5) | (num_u as u32), 8);
@@ -761,7 +761,7 @@ impl AlacEncoder {
             // if shift active, write the interleaved shift buffers
             if bytes_shifted != 0 {
                 let bit_shift: u32 = (bytes_shifted as u32) * 8;
-                assert!(bit_shift <= 16);
+                debug_assert!(bit_shift <= 16);
 
                 for index in (0..(num_samples * 2)).step_by(2) {
                     let shifted_val: u32 = ((self.shift_buffer_uv[index] as u32) << bit_shift) | (self.shift_buffer_uv[index + 1] as u32);

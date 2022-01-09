@@ -100,7 +100,7 @@ fn dyn_code_32bit(bitstream: &mut BitBuffer, maxbits: usize, m: u32, k: u32, n: 
 }
 
 pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_samples: usize, bit_size: usize) {
-    assert!(bit_size > 0 && bit_size <= 32);
+    debug_assert!(bit_size > 0 && bit_size <= 32);
 
     let mut mb: u32 = params.mb;
     let pb: u32 = params.pb;
@@ -123,7 +123,7 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
         row_pos += 1;
 
         let n: u32 = ((del.abs() << 1) - ((del >> 31) & 1)) as u32 - zmode;
-        assert!(32 - n.leading_zeros() <= bit_size as u32);
+        debug_assert!(32 - n.leading_zeros() <= bit_size as u32);
 
         dyn_code_32bit(bitstream, bit_size, m, k, n);
 
@@ -142,7 +142,7 @@ pub fn dyn_comp(params: &AgParams, pc: &[i32], bitstream: &mut BitBuffer, num_sa
 
         zmode = 0;
 
-        assert!(c <= num_samples);
+        debug_assert!(c <= num_samples);
 
         if ((mb << MMULSHIFT) < QB) && (c < num_samples) {
             zmode = 1;
