@@ -66,7 +66,7 @@ pub fn mix20(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
 // 24-bit routines
 // - 24-bit data sometimes compresses better by shifting off the bottom byte so these routines deal with
 //	 the specified "unused lower bytes" in the combined "shift" buffer
-pub fn mix24(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: i32, shift_uv: &mut [u16], bytes_shifted: u8) {
+pub fn mix24(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: i32, shift_uv: &mut [u16], bytes_shifted: usize) {
     debug_assert!(bytes_shifted <= 2);
 
     let shift = bytes_shifted * 8;
@@ -126,7 +126,7 @@ pub fn mix24(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
 // - note that these really expect the internal data width to be < 32-bit but the arrays are 32-bit
 // - otherwise, the calculations might overflow into the 33rd bit and be lost
 // - therefore, these routines deal with the specified "unused lower" bytes in the combined "shift" buffer
-pub fn mix32(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: i32, shift_uv: &mut [u16], bytes_shifted: u8) {
+pub fn mix32(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: i32, shift_uv: &mut [u16], bytes_shifted: usize) {
     debug_assert!(bytes_shifted <= 2);
 
     let shift = bytes_shifted * 8;

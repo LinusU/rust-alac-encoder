@@ -358,9 +358,9 @@ impl AlacEncoder {
 
         // pick bit depth for actual encoding
         // - we lop off the lower byte(s) for 24-/32-bit encodings
-        let bytes_shifted: u8 = match self.bit_depth { 32 => 2, 24 => 1, _ => 0 };
+        let bytes_shifted: usize = match self.bit_depth { 32 => 2, 24 => 1, _ => 0 };
 
-        let shift = (bytes_shifted as usize) * 8;
+        let shift = bytes_shifted * 8;
         let mask: u32 = (1u32 << shift) - 1;
         let chan_bits = self.bit_depth - shift;
 
@@ -434,7 +434,7 @@ impl AlacEncoder {
         // - first, add bits for the header bytes mixRes/maxRes/shiftU/filterU
         min_bits += (4 /* mixRes/maxRes/etc. */ * 8) + (if partial_frame == (true as u8) { 32 } else { 0 });
         if bytes_shifted != 0 {
-            min_bits += num_samples * ((bytes_shifted as usize) * 8);
+            min_bits += num_samples * bytes_shifted * 8;
         }
 
         let escape_bits = (num_samples * self.bit_depth) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
@@ -586,7 +586,7 @@ impl AlacEncoder {
         // matrix encoding adds an extra bit but 32-bit inputs cannot be matrixed b/c 33 is too many
         // so enable 16-bit "shift off" and encode in 17-bit mode
         // - in addition, 24-bit mode really improves with one byte shifted off
-        let bytes_shifted: u8 = match self.bit_depth { 32 => 2, 24 => 1, _ => 0 };
+        let bytes_shifted: usize = match self.bit_depth { 32 => 2, 24 => 1, _ => 0 };
 
         let chan_bits: u32 = (self.bit_depth as u32) - (bytes_shifted as u32 * 8) + 1;
 
@@ -707,7 +707,7 @@ impl AlacEncoder {
         // test for escape hatch if best calculated compressed size turns out to be more than the input size
         let mut min_bits = min_bits1 + min_bits2 + (8 /* mixRes/maxRes/etc. */ * 8) + (if partial_frame == (true as u8) { 32 } else { 0 });
         if bytes_shifted != 0 {
-            min_bits += (num_samples) * ((bytes_shifted as usize) * 8) * 2;
+            min_bits += num_samples * bytes_shifted * 8 * 2;
         }
 
         let escape_bits = (num_samples * self.bit_depth * 2) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
@@ -742,7 +742,7 @@ impl AlacEncoder {
 
             // if shift active, write the interleaved shift buffers
             if bytes_shifted != 0 {
-                let bit_shift = (bytes_shifted as usize) * 8;
+                let bit_shift = bytes_shifted * 8;
                 debug_assert!(bit_shift <= 16);
 
                 for index in (0..(num_samples * 2)).step_by(2) {
