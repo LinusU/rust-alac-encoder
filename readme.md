@@ -9,7 +9,7 @@ This crate works with Cargo and is on [crates.io](https://crates.io/crates/alac-
 ## Usage
 
 ```rust
-use alac_encoder::{AlacEncoder, FormatDescription, MAX_ESCAPE_HEADER_BYTES};
+use alac_encoder::{AlacEncoder, FormatDescription};
 
 // Specify the input format as signed 16-bit raw PCM, 44100 Hz & 2 channels
 let input_format = FormatDescription::pcm::<i16>(44100.0, 2);
@@ -21,8 +21,7 @@ let output_format = FormatDescription::alac(44100.0, 4096, 2);
 let mut encoder = AlacEncoder::new(&output_format);
 
 // Allocate a buffer for the encoder to write chunks to.
-// The smallest size of one chunk is (frame size * channels * bit depth in bytes) + max escape header bytes.
-let mut output = vec![0u8; (4096 * 2 * 2) + MAX_ESCAPE_HEADER_BYTES];
+let mut output = vec![0u8; output_format.max_packet_size()];
 
 // Get a hold of the source data, e.g. from a file
 let pcm = fs::read("foobar.pcm").unwrap();

@@ -18,13 +18,8 @@ use matrix::Source;
 pub const DEFAULT_FRAME_SIZE: usize = 4096;
 pub const DEFAULT_FRAMES_PER_PACKET: u32 = 4096;
 
-// FIXME: Adding some bytes here because the encoder does produce packages that large when encoding random data
-// 4 & 5 channels seems to overflow by one byte
-// 6 channels seems to overflow by four bytes
-// 7 & 8 channels seems to overflow by seven bytes
-// The last, smaller, packet can also overflow by 20 bytes on top of this
-// 8 + 7 + 20 = 35, make it 40 for good measurement
-pub const MAX_ESCAPE_HEADER_BYTES: usize = 40;
+#[deprecated(note = "Use FormatDescription::max_packet_size instead")]
+pub const MAX_ESCAPE_HEADER_BYTES: usize = max_packet_size(0, 8, 0);
 
 const MAX_CHANNELS: usize = 8;
 const MAX_SAMPLE_SIZE: usize = 32;
@@ -63,6 +58,26 @@ const CHANNEL_MAPS: [[Option<ElementType>; MAX_CHANNELS]; MAX_CHANNELS] = [
     [Some(ElementType::Sce), Some(ElementType::Cpe), None, Some(ElementType::Cpe), None, Some(ElementType::Cpe), None, Some(ElementType::Sce)],
 ];
 
+#[must_use]
+const fn max_packet_size(bit_depth: usize, channels_per_frame: usize, frames_per_packet: usize) -> usize {
+    let sce = 3 + 4 + 12 + 4 + (bit_depth * frames_per_packet);
+    let cpe = 3 + 4 + 12 + 4 + (bit_depth * 2 * frames_per_packet);
+
+    let channel_bits = match channels_per_frame {
+        1 => sce,
+        2 => cpe,
+        3 => sce + cpe,
+        4 => sce + cpe + sce,
+        5 => sce + cpe + cpe,
+        6 => sce + cpe + cpe + sce,
+        7 => sce + cpe + cpe + sce + sce,
+        8 => sce + cpe + cpe + cpe + sce,
+        _ => unreachable!(),
+    };
+
+    (channel_bits + 3 + 7) / 8
+}
+
 pub trait PcmFormat {
     fn bits() -> u32;
     fn bytes() -> u32;
@@ -86,7 +101,6 @@ enum FormatType {
 pub struct FormatDescription {
     sample_rate: f64,
     format_id: FormatType,
-    format_flags: u32,
     bytes_per_packet: u32,
     frames_per_packet: u32,
     channels_per_frame: u32,
@@ -96,10 +110,11 @@ pub struct FormatDescription {
 impl FormatDescription {
     #[must_use]
     pub fn pcm<T: PcmFormat>(sample_rate: f64, channels: u32) -> FormatDescription {
+        assert!(channels > 0 && channels <= MAX_CHANNELS as u32);
+
         FormatDescription {
             sample_rate,
             format_id: FormatType::LinearPcm,
-            format_flags: T::flags(),
             bytes_per_packet: channels * T::bytes(),
             frames_per_packet: 1,
             channels_per_frame: channels,
@@ -108,24 +123,28 @@ impl FormatDescription {
     }
 
     #[must_use]
-    pub fn alac(sample_rate: f64, frames_per_packet: u32, channels: u32) -> FormatDescription {
+    pub const fn alac(sample_rate: f64, frames_per_packet: u32, channels: u32) -> FormatDescription {
+        assert!(channels > 0 && channels <= MAX_CHANNELS as u32);
+
         FormatDescription {
             sample_rate,
             format_id: FormatType::AppleLossless,
-            format_flags: 1,
             bytes_per_packet: 0,
             frames_per_packet,
             channels_per_frame: channels,
-            bits_per_channel: 0,
+            bits_per_channel: 16,
         }
+    }
+
+    #[must_use]
+    pub const fn max_packet_size(&self) -> usize {
+        max_packet_size(self.bits_per_channel as usize, self.channels_per_frame as usize, self.frames_per_packet as usize)
     }
 }
 
 pub struct AlacEncoder {
     // ALAC encoder parameters
     bit_depth: usize,
-    // FIXME: Why is this also needed? and why is it zero? What happens if it's e.g. 16?
-    bits_per_channel: usize,
 
     // encoding state
     last_mix_res: [i16; 8],
@@ -147,7 +166,6 @@ pub struct AlacEncoder {
     avg_bit_rate: u32,
     max_frame_bytes: u32,
     frame_size: usize,
-    max_output_bytes: usize,
     num_channels: u32,
     output_sample_rate: u32,
 }
@@ -155,14 +173,6 @@ pub struct AlacEncoder {
 impl AlacEncoder {
     pub fn new(output_format: &FormatDescription) -> AlacEncoder {
         assert_eq!(output_format.format_id, FormatType::AppleLossless);
-
-        let bit_depth = match output_format.format_flags {
-            1 => 16,
-            2 => 20,
-            3 => 24,
-            4 => 32,
-            _ => panic!("Invalid format_flags: {}", output_format.format_flags),
-        };
 
         let frame_size = output_format.frames_per_packet as usize;
         let num_channels = output_format.channels_per_frame;
@@ -195,8 +205,7 @@ impl AlacEncoder {
 
         AlacEncoder {
             // ALAC encoder parameters
-            bit_depth,
-            bits_per_channel: output_format.bits_per_channel as usize,
+            bit_depth: output_format.bits_per_channel as usize,
 
             // encoding state
             last_mix_res: [0; 8],
@@ -218,7 +227,6 @@ impl AlacEncoder {
             avg_bit_rate: 0,
             max_frame_bytes: 0,
             frame_size,
-            max_output_bytes,
             num_channels,
             output_sample_rate: output_format.sample_rate as u32,
         }
@@ -287,12 +295,11 @@ impl AlacEncoder {
         let num_frames = input_data.len() / (input_format.bytes_per_packet as usize);
         assert!(num_frames <= self.frame_size);
 
-        let minimum_buffer_size = (num_frames * (self.num_channels as usize) * (((10 + self.bits_per_channel) / 8) + 1)) + MAX_ESCAPE_HEADER_BYTES;
+        let minimum_buffer_size = max_packet_size(self.bit_depth, self.num_channels as usize, self.frame_size);
         assert!(output_data.len() >= minimum_buffer_size);
 
         // create a bit buffer structure pointing to our output buffer
-        // FIXME: max_output_bytes is calculated from maximum sample size, and thus is usually larger than output_data length. Validate that this assumption holds...
-        let mut bitstream = BitBuffer::new(&mut output_data[0..minimum_buffer_size]);
+        let mut bitstream = BitBuffer::new(output_data);
 
         match input_format.channels_per_frame {
             1 => {
@@ -360,7 +367,7 @@ impl AlacEncoder {
 
         let output_size = bitstream.position() / 8;
         debug_assert!(output_size <= bitstream.len());
-        debug_assert!(output_size <= self.max_output_bytes);
+        debug_assert!(output_size <= minimum_buffer_size);
 
         self.total_bytes_generated += output_size;
         self.max_frame_bytes = core::cmp::max(self.max_frame_bytes, output_size as u32);
@@ -813,7 +820,7 @@ impl AlacEncoder {
 mod tests {
     extern crate std;
 
-    use super::{AlacEncoder, FormatDescription, MAX_ESCAPE_HEADER_BYTES};
+    use super::{AlacEncoder, FormatDescription};
 
     use std::{fs, vec::Vec};
 
@@ -834,7 +841,7 @@ mod tests {
 
         let pcm = fs::read(format!("fixtures/{}", input)).unwrap();
 
-        let mut output = vec![0u8; (frame_size as usize * channels as usize * 2) + MAX_ESCAPE_HEADER_BYTES];
+        let mut output = vec![0u8; output_format.max_packet_size()];
 
         let mut result = EncodingResult {
             magic_cookie: encoder.magic_cookie(),
