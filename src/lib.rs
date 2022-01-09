@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 use ag::AgParams;
 use bit_buffer::BitBuffer;
 use log::debug;
+use matrix::Source;
 
 pub const DEFAULT_FRAME_SIZE: usize = 4096;
 pub const DEFAULT_FRAMES_PER_PACKET: u32 = 4096;
@@ -41,35 +42,25 @@ const MAX_RUN_DEFAULT: u16 = 255;
 
 const ALAC_COMPATIBLE_VERSION: u8 = 0;
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 enum ElementType {
-    /// Single Channel Element
-    SCE = 0,
-    /// Channel Pair Element
-    CPE = 1,
-    /// Coupling Channel Element
-    CCE = 2,
-    /// LFE Channel Element
-    LFE = 3,
-    // not yet supported
-    DSE = 4,
-    PCE = 5,
-    FIL = 6,
-    END = 7,
-    /// invalid
-    NIL = 255,
+    /// Single channel element
+    Sce = 0,
+    /// Channel pair element
+    Cpe = 1,
+    /// End of frame marker
+    End = 7,
 }
 
-const CHANNEL_MAPS: [[ElementType; MAX_CHANNELS]; MAX_CHANNELS] = [
-    [ElementType::SCE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
-    [ElementType::CPE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
-    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
-    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::SCE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
-    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::NIL, ElementType::NIL, ElementType::NIL],
-    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::SCE, ElementType::NIL, ElementType::NIL],
-    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::SCE, ElementType::SCE, ElementType::NIL],
-    [ElementType::SCE, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::CPE, ElementType::NIL, ElementType::SCE],
+const CHANNEL_MAPS: [[Option<ElementType>; MAX_CHANNELS]; MAX_CHANNELS] = [
+    [Some(ElementType::Sce), None, None, None, None, None, None, None],
+    [Some(ElementType::Cpe), None, None, None, None, None, None, None],
+    [Some(ElementType::Sce), Some(ElementType::Cpe), None, None, None, None, None, None],
+    [Some(ElementType::Sce), Some(ElementType::Cpe), None, Some(ElementType::Sce), None, None, None, None],
+    [Some(ElementType::Sce), Some(ElementType::Cpe), None, Some(ElementType::Cpe), None, None, None, None],
+    [Some(ElementType::Sce), Some(ElementType::Cpe), None, Some(ElementType::Cpe), None, Some(ElementType::Sce), None, None],
+    [Some(ElementType::Sce), Some(ElementType::Cpe), None, Some(ElementType::Cpe), None, Some(ElementType::Sce), Some(ElementType::Sce), None],
+    [Some(ElementType::Sce), Some(ElementType::Cpe), None, Some(ElementType::Cpe), None, Some(ElementType::Cpe), None, Some(ElementType::Sce)],
 ];
 
 pub trait PcmFormat {
@@ -103,6 +94,7 @@ pub struct FormatDescription {
 }
 
 impl FormatDescription {
+    #[must_use]
     pub fn pcm<T: PcmFormat>(sample_rate: f64, channels: u32) -> FormatDescription {
         FormatDescription {
             sample_rate,
@@ -115,6 +107,7 @@ impl FormatDescription {
         }
     }
 
+    #[must_use]
     pub fn alac(sample_rate: f64, frames_per_packet: u32, channels: u32) -> FormatDescription {
         FormatDescription {
             sample_rate,
@@ -130,7 +123,7 @@ impl FormatDescription {
 
 pub struct AlacEncoder {
     // ALAC encoder parameters
-    bit_depth: i16,
+    bit_depth: usize,
     // FIXME: Why is this also needed? and why is it zero? What happens if it's e.g. 16?
     bits_per_channel: usize,
 
@@ -202,37 +195,37 @@ impl AlacEncoder {
 
         AlacEncoder {
             // ALAC encoder parameters
-            bit_depth: bit_depth,
+            bit_depth,
             bits_per_channel: output_format.bits_per_channel as usize,
 
             // encoding state
             last_mix_res: [0; 8],
 
             // encoding buffers
-            mix_buffer_u: mix_buffer_u,
-            mix_buffer_v: mix_buffer_v,
-            predictor_u: predictor_u,
-            predictor_v: predictor_v,
-            shift_buffer_uv: shift_buffer_uv,
-            work_buffer: work_buffer,
+            mix_buffer_u,
+            mix_buffer_v,
+            predictor_u,
+            predictor_v,
+            shift_buffer_uv,
+            work_buffer,
 
             // per-channel coefficients buffers
-            coefs_u: coefs_u,
-            coefs_v: coefs_v,
+            coefs_u,
+            coefs_v,
 
             // encoding statistics
             total_bytes_generated: 0,
             avg_bit_rate: 0,
             max_frame_bytes: 0,
-            frame_size: frame_size,
-            max_output_bytes: max_output_bytes,
-            num_channels: num_channels,
+            frame_size,
+            max_output_bytes,
+            num_channels,
             output_sample_rate: output_format.sample_rate as u32,
         }
     }
 
     pub fn bit_depth(&self) -> usize {
-        self.bit_depth as usize
+        self.bit_depth
     }
 
     pub fn channels(&self) -> usize {
@@ -278,7 +271,7 @@ impl AlacEncoder {
             };
 
             result.extend(u32::to_be_bytes(24));
-            result.extend(&['c' as u8, 'h' as u8, 'a' as u8, 'n' as u8]);
+            result.extend(b"chan");
             result.extend(u32::to_be_bytes(0));
             result.extend(&channel_layout_tag);
             result.extend(u32::to_be_bytes(0));
@@ -304,7 +297,7 @@ impl AlacEncoder {
         match input_format.channels_per_frame {
             1 => {
                 // add 3-bit frame start tag ID_SCE = mono channel & 4-bit element instance tag = 0
-                bitstream.write_lte25(ElementType::SCE as u32, 3);
+                bitstream.write_lte25(ElementType::Sce as u32, 3);
                 bitstream.write_lte25(0, 4);
 
                 // encode mono input buffer
@@ -312,37 +305,36 @@ impl AlacEncoder {
             },
             2 => {
                 // add 3-bit frame start tag ID_CPE = channel pair & 4-bit element instance tag = 0
-                bitstream.write_lte25(ElementType::CPE as u32, 3);
+                bitstream.write_lte25(ElementType::Cpe as u32, 3);
                 bitstream.write_lte25(0, 4);
 
                 // encode stereo input buffer
                 self.encode_stereo(&mut bitstream, input_data, 2, 0, num_frames);
             },
             3..=8 => {
-                let input_increment = ((self.bit_depth + 7) / 8) as usize;
+                let input_increment = (self.bit_depth + 7) / 8;
                 let mut input_position = 0usize;
 
                 let mut channel_index = 0;
                 let mut mono_element_tag = 0;
                 let mut stereo_element_tag = 0;
-                let mut lfe_element_tag = 0;
 
                 while channel_index < input_format.channels_per_frame {
-                    let tag = CHANNEL_MAPS[input_format.channels_per_frame as usize - 1][channel_index as usize];
+                    let tag = CHANNEL_MAPS[input_format.channels_per_frame as usize - 1][channel_index as usize].unwrap();
 
                     bitstream.write_lte25(tag as u32, 3);
 
                     match tag {
-                        ElementType::SCE => {
+                        ElementType::Sce => {
                             // mono
                             bitstream.write_lte25(mono_element_tag, 4);
-                            let input_size = input_increment * 1;
+                            let input_size = input_increment;
                             self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames);
                             input_position += input_size;
                             channel_index += 1;
                             mono_element_tag += 1;
                         },
-                        ElementType::CPE => {
+                        ElementType::Cpe => {
                             // stereo
                             bitstream.write_lte25(stereo_element_tag, 4);
                             let input_size = input_increment * 2;
@@ -350,15 +342,6 @@ impl AlacEncoder {
                             input_position += input_size;
                             channel_index += 2;
                             stereo_element_tag += 1;
-                        },
-                        ElementType::LFE => {
-                            // LFE channel (subwoofer)
-                            bitstream.write_lte25(lfe_element_tag, 4);
-                            let input_size = input_increment * 1;
-                            self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames);
-                            input_position += input_size;
-                            channel_index += 1;
-                            lfe_element_tag += 1;
                         },
                         _ => panic!("Unexpected ElementTag {:?}", tag),
                     }
@@ -370,10 +353,10 @@ impl AlacEncoder {
         }
 
         // add 3-bit frame end tag: ID_END
-        bitstream.write_lte25(ElementType::END as u32, 3);
+        bitstream.write_lte25(ElementType::End as u32, 3);
 
         // byte-align the output data
-        bitstream.byte_align(true);
+        bitstream.byte_align();
 
         let output_size = bitstream.position() / 8;
         assert!(output_size <= bitstream.len());
@@ -400,7 +383,7 @@ impl AlacEncoder {
         let chan_bits: u32 = (self.bit_depth as u32) - shift;
 
         // flag whether or not this is a partial frame
-        let partial_frame: u8 = if num_samples == (self.frame_size) { 0 } else { 1 };
+        let partial_frame: u8 = if num_samples == self.frame_size { 0 } else { 1 };
 
         match self.bit_depth {
             16 => {
@@ -472,11 +455,11 @@ impl AlacEncoder {
             min_bits += num_samples * ((bytes_shifted as usize) * 8);
         }
 
-        let escape_bits = (num_samples * (self.bit_depth as usize)) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
+        let escape_bits = (num_samples * self.bit_depth) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
 
         let mut do_escape = min_bits >= escape_bits;
 
-        if do_escape == false {
+        if !do_escape {
             // write bitstream header
             bitstream.write_lte25(0, 12);
             bitstream.write_lte25(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
@@ -486,7 +469,8 @@ impl AlacEncoder {
             bitstream.write_lte25(0, 16); // mixBits = mixRes = 0
 
             // write the params and predictor coefs
-            bitstream.write_lte25((0 << 4) | dp::DENSHIFT_DEFAULT, 8); // modeU = 0
+            let mode_u = 0;
+            bitstream.write_lte25((mode_u << 4) | dp::DENSHIFT_DEFAULT, 8);
             bitstream.write_lte25(((pb_factor as u32) << 5) | (best_u as u32), 8);
             for index in 0..best_u {
                 bitstream.write_lte25(coefs_u[(best_u as usize) - 1][index] as u32, 16);
@@ -516,7 +500,7 @@ impl AlacEncoder {
             }
         }
 
-        if do_escape == true {
+        if do_escape {
             // write bitstream header and coefs
             bitstream.write_lte25(0, 12);
             bitstream.write_lte25(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
@@ -527,7 +511,7 @@ impl AlacEncoder {
             // just copy the input data to the output buffer
             match self.bit_depth {
                 16 => {
-                    let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16 as *mut i16, num_samples * stride) };
+                    let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
                     for index in (0..(num_samples * stride)).step_by(stride) {
                         bitstream.write_lte25(input16[index] as u32, 16);
                     }
@@ -559,7 +543,7 @@ impl AlacEncoder {
 
     fn encode_stereo_escape(&mut self, bitstream: &mut BitBuffer, input: &[u8], stride: usize, num_samples: usize) {
         // flag whether or not this is a partial frame
-        let partial_frame: u8 = if num_samples == (self.frame_size) { 0 } else { 1 };
+        let partial_frame: u8 = if num_samples == self.frame_size { 0 } else { 1 };
 
         // write bitstream header
         bitstream.write_lte25(0, 12);
@@ -574,13 +558,13 @@ impl AlacEncoder {
                 let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
 
                 for index in (0..(num_samples * stride)).step_by(stride) {
-                    bitstream.write_lte25(input16[index + 0] as u32, 16);
+                    bitstream.write_lte25(input16[index] as u32, 16);
                     bitstream.write_lte25(input16[index + 1] as u32, 16);
                 }
             },
             20 => {
                 // mix20() with mixres param = 0 means de-interleave so use it to simplify things
-                matrix::mix20(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, 0, 0);
+                matrix::mix20(Source { data: input, stride, num_samples }, &mut self.mix_buffer_u, &mut self.mix_buffer_v, 0, 0);
                 for index in 0..num_samples {
                     bitstream.write_lte25(self.mix_buffer_u[index] as u32, 20);
                     bitstream.write_lte25(self.mix_buffer_v[index] as u32, 20);
@@ -588,7 +572,7 @@ impl AlacEncoder {
             },
             24 => {
                 // mix24() with mixres param = 0 means de-interleave so use it to simplify things
-                matrix::mix24(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, 0, 0, &mut self.shift_buffer_uv, 0);
+                matrix::mix24(Source { data: input, stride, num_samples }, &mut self.mix_buffer_u, &mut self.mix_buffer_v, 0, 0, &mut self.shift_buffer_uv, 0);
                 for index in 0..num_samples {
                     bitstream.write_lte25(self.mix_buffer_u[index] as u32, 24);
                     bitstream.write_lte25(self.mix_buffer_v[index] as u32, 24);
@@ -598,7 +582,7 @@ impl AlacEncoder {
                 let input32 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i32, num_samples * stride) };
 
                 for index in (0..(num_samples * stride)).step_by(stride) {
-                    bitstream.write(input32[index + 0] as u32, 32);
+                    bitstream.write(input32[index] as u32, 32);
                     bitstream.write(input32[index + 1] as u32, 32);
                 }
             },
@@ -625,7 +609,7 @@ impl AlacEncoder {
         let chan_bits: u32 = (self.bit_depth as u32) - (bytes_shifted as u32 * 8) + 1;
 
         // flag whether or not this is a partial frame
-        let partial_frame: u8 = if num_samples == (self.frame_size) { 0 } else { 1 };
+        let partial_frame: u8 = if num_samples == self.frame_size { 0 } else { 1 };
 
         // brute-force encode optimization loop
         // - run over variations of the encoding params to find the best choice
@@ -641,22 +625,23 @@ impl AlacEncoder {
 
         for mix_res in 0..=max_res {
             let dilate = 8usize;
+            let source = Source { data: input, stride, num_samples: num_samples / dilate };
 
             // mix the stereo inputs
             match self.bit_depth {
                 16 => {
-                    matrix::mix16(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res);
+                    matrix::mix16(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res);
                 },
                 20 => {
-                    matrix::mix20(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res);
+                    matrix::mix20(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res);
                 },
                 24 => {
                     // includes extraction of shifted-off bytes
-                    matrix::mix24(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
+                    matrix::mix24(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted);
                 },
                 32 => {
                     // includes extraction of shifted-off bytes
-                    matrix::mix32(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples / dilate, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
+                    matrix::mix32(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted);
                 },
                 _ => panic!("Invalid mBitDepth"),
             }
@@ -682,20 +667,21 @@ impl AlacEncoder {
 
         // mix the stereo inputs with the current best mixRes
         let mix_res: i32 = self.last_mix_res[channel_index] as i32;
+        let source = Source { data: input, stride, num_samples };
         match self.bit_depth {
             16 => {
-                matrix::mix16(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res);
+                matrix::mix16(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res);
             },
             20 => {
-                matrix::mix20(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res);
+                matrix::mix20(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res);
             },
             24 => {
                 // also extracts the shifted off bytes into the shift buffers
-                matrix::mix24(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
+                matrix::mix24(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted);
             },
             32 => {
                 // also extracts the shifted off bytes into the shift buffers
-                matrix::mix32(input, stride, &mut self.mix_buffer_u, &mut self.mix_buffer_v, num_samples, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted as i32);
+                matrix::mix32(source, &mut self.mix_buffer_u, &mut self.mix_buffer_v, mix_bits, mix_res, &mut self.shift_buffer_uv, bytes_shifted);
             },
             _ => panic!("Invalid mBitDepth"),
         }
@@ -742,11 +728,11 @@ impl AlacEncoder {
             min_bits += (num_samples) * ((bytes_shifted as usize) * 8) * 2;
         }
 
-        let escape_bits = (num_samples * (self.bit_depth as usize) * 2) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
+        let escape_bits = (num_samples * self.bit_depth * 2) + (if partial_frame == (true as u8) { 32 } else { 0 }) + (2 * 8); /* 2 common header bytes */
 
         let mut do_escape = min_bits >= escape_bits;
 
-        if do_escape == false {
+        if !do_escape {
             // write bitstream header and coefs
             bitstream.write_lte25(0, 12);
             bitstream.write_lte25(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
@@ -778,7 +764,7 @@ impl AlacEncoder {
                 assert!(bit_shift <= 16);
 
                 for index in (0..(num_samples * 2)).step_by(2) {
-                    let shifted_val: u32 = ((self.shift_buffer_uv[index + 0] as u32) << bit_shift) | (self.shift_buffer_uv[index + 1] as u32);
+                    let shifted_val: u32 = ((self.shift_buffer_uv[index] as u32) << bit_shift) | (self.shift_buffer_uv[index + 1] as u32);
                     bitstream.write(shifted_val, bit_shift * 2);
                 }
             }
@@ -817,7 +803,7 @@ impl AlacEncoder {
             }
         }
 
-        if do_escape == true {
+        if do_escape {
             self.encode_stereo_escape(bitstream, input, stride, num_samples);
         }
     }
@@ -856,7 +842,7 @@ mod tests {
         };
 
         for chunk in pcm.chunks(frame_size as usize * channels as usize * 2) {
-            let size = encoder.encode(&input_format, &chunk, &mut output);
+            let size = encoder.encode(&input_format, chunk, &mut output);
             result.alac_chunks.push(Vec::from(&output[0..size]));
         }
 
