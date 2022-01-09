@@ -18,12 +18,12 @@ impl<'a> BitBuffer<'a> {
         let target = unsafe { self.buffer.as_mut_ptr().offset((self.position >> 3) as isize) as *mut u32 };
         let shift = 32 - ((self.position as u32) & 7) - num_bits;
 
-        let curr = u32::from_be(unsafe { std::ptr::read_unaligned(target) });
+        let curr = u32::from_be(unsafe { core::ptr::read_unaligned(target) });
 
         let mask = ((!0u32) >> (32 - num_bits)) << shift;
         let main = ((bit_values << shift) & mask) | (curr & !mask);
 
-        unsafe { std::ptr::write_unaligned(target, main.to_be()); }
+        unsafe { core::ptr::write_unaligned(target, main.to_be()); }
 
         self.position += num_bits as usize;
     }
@@ -34,20 +34,20 @@ impl<'a> BitBuffer<'a> {
         let target = unsafe { self.buffer.as_mut_ptr().offset((self.position >> 3) as isize) as *mut u32 };
         let shift = (32 - ((self.position as i32) & 7) - (num_bits as i32)) as i32;
 
-        let curr = u32::from_be(unsafe { std::ptr::read_unaligned(target) });
+        let curr = u32::from_be(unsafe { core::ptr::read_unaligned(target) });
 
         if shift < 0 {
             let mask = (!0u32) >> -shift;
             let main = (bit_values >> -shift) | (curr & !mask);
             let tail = ((bit_values << ((8 + shift))) & 0xff) as u8;
 
-            unsafe { std::ptr::write_unaligned(target, main.to_be()); }
-            unsafe { std::ptr::write_unaligned(target.offset(1) as *mut u8, tail); }
+            unsafe { core::ptr::write_unaligned(target, main.to_be()); }
+            unsafe { core::ptr::write_unaligned(target.offset(1) as *mut u8, tail); }
         } else {
             let mask = ((!0u32) >> (32 - num_bits)) << shift;
             let main = ((bit_values << shift) & mask) | (curr & !mask);
 
-            unsafe { std::ptr::write_unaligned(target, main.to_be()); }
+            unsafe { core::ptr::write_unaligned(target, main.to_be()); }
         }
 
         self.position += num_bits as usize;

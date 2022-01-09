@@ -1,6 +1,6 @@
 //! Adaptive Golomb
 
-use std::cmp;
+use core::cmp;
 
 use crate::bit_buffer::BitBuffer;
 

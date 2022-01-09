@@ -1,6 +1,6 @@
 //! Dynamic Predictor
 
-use std::num::Wrapping;
+use core::num::Wrapping;
 
 const AINIT: i32 = 38;
 const BINIT: i32 = -29;
@@ -22,7 +22,7 @@ trait Signed {
 
 impl Signed for i32 {
     fn sign(&self) -> Sign {
-        unsafe { std::mem::transmute(self.signum()) }
+        unsafe { core::mem::transmute(self.signum()) }
     }
 }
 
