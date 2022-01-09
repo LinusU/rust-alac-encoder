@@ -166,7 +166,7 @@ pub struct AlacEncoder {
     avg_bit_rate: u32,
     max_frame_bytes: u32,
     frame_size: usize,
-    num_channels: u32,
+    num_channels: usize,
     output_sample_rate: u32,
 }
 
@@ -175,8 +175,8 @@ impl AlacEncoder {
         assert_eq!(output_format.format_id, FormatType::AppleLossless);
 
         let frame_size = output_format.frames_per_packet as usize;
-        let num_channels = output_format.channels_per_frame;
-        let max_output_bytes = frame_size * (num_channels as usize) * ((10 + MAX_SAMPLE_SIZE) / 8) + 1;
+        let num_channels = output_format.channels_per_frame as usize;
+        let max_output_bytes = frame_size * num_channels * ((10 + MAX_SAMPLE_SIZE) / 8) + 1;
 
         let mut coefs_u = [[[0i16; MAX_COEFS]; MAX_SEARCHES]; MAX_CHANNELS];
         let mut coefs_v = [[[0i16; MAX_COEFS]; MAX_SEARCHES]; MAX_CHANNELS];
@@ -196,7 +196,7 @@ impl AlacEncoder {
         let work_buffer = vec![0u8; max_output_bytes];
 
         // initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
-        for channel in 0..(num_channels as usize) {
+        for channel in 0..num_channels {
             for search in 0..MAX_SEARCHES {
                 dp::init_coefs(&mut coefs_u[channel][search], dp::DENSHIFT_DEFAULT);
                 dp::init_coefs(&mut coefs_v[channel][search], dp::DENSHIFT_DEFAULT);
@@ -237,7 +237,7 @@ impl AlacEncoder {
     }
 
     pub fn channels(&self) -> usize {
-        self.num_channels as usize
+        self.num_channels
     }
 
     pub fn frames(&self) -> usize {
@@ -295,7 +295,7 @@ impl AlacEncoder {
         let num_frames = input_data.len() / (input_format.bytes_per_packet as usize);
         assert!(num_frames <= self.frame_size);
 
-        let minimum_buffer_size = max_packet_size(self.bit_depth, self.num_channels as usize, self.frame_size);
+        let minimum_buffer_size = max_packet_size(self.bit_depth, self.num_channels, self.frame_size);
         assert!(output_data.len() >= minimum_buffer_size);
 
         // create a bit buffer structure pointing to our output buffer
