@@ -360,9 +360,9 @@ impl AlacEncoder {
         // - we lop off the lower byte(s) for 24-/32-bit encodings
         let bytes_shifted: u8 = match self.bit_depth { 32 => 2, 24 => 1, _ => 0 };
 
-        let shift: u32 = (bytes_shifted as u32) * 8;
+        let shift = (bytes_shifted as usize) * 8;
         let mask: u32 = (1u32 << shift) - 1;
-        let chan_bits: u32 = (self.bit_depth as u32) - shift;
+        let chan_bits = self.bit_depth - shift;
 
         // flag whether or not this is a partial frame
         let partial_frame: u8 = if num_samples == self.frame_size { 0 } else { 1 };
@@ -742,7 +742,7 @@ impl AlacEncoder {
 
             // if shift active, write the interleaved shift buffers
             if bytes_shifted != 0 {
-                let bit_shift: u32 = (bytes_shifted as u32) * 8;
+                let bit_shift = (bytes_shifted as usize) * 8;
                 debug_assert!(bit_shift <= 16);
 
                 for index in (0..(num_samples * 2)).step_by(2) {
