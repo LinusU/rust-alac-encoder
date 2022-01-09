@@ -1,6 +1,0 @@
-.dockerignore
-.git/
-.gitignore
-.vscode/
-Cargo.lock
-target/
