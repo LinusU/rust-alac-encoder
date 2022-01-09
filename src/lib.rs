@@ -413,15 +413,15 @@ impl AlacEncoder {
         for num_u in (min_u..max_u).step_by(4) {
             let dilate = 32usize;
             for _ in 0..7 {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits, dp::DENSHIFT_DEFAULT);
             }
 
             let dilate = 8usize;
-            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[num_u - 1], num_u, chan_bits, dp::DENSHIFT_DEFAULT);
 
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
-            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits);
 
             let num_bits = (dilate * work_bits.position()) + (16 * num_u);
             if num_bits < min_bits {
@@ -466,11 +466,11 @@ impl AlacEncoder {
             }
 
             // run the dynamic predictor with the best result
-            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[best_u - 1], best_u, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[best_u - 1], best_u, chan_bits, dp::DENSHIFT_DEFAULT);
 
             // do lossless compression
             let ag_params = AgParams::new_standard(num_samples as u32, num_samples as u32);
-            ag::dyn_comp(&ag_params, &self.predictor_u, bitstream, num_samples, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_u, bitstream, num_samples, chan_bits);
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
             // chuck it and do an escape packet
@@ -588,7 +588,7 @@ impl AlacEncoder {
         // - in addition, 24-bit mode really improves with one byte shifted off
         let bytes_shifted: usize = match self.bit_depth { 32 => 2, 24 => 1, _ => 0 };
 
-        let chan_bits: u32 = (self.bit_depth as u32) - (bytes_shifted as u32 * 8) + 1;
+        let chan_bits = self.bit_depth - (bytes_shifted * 8) + 1;
 
         // flag whether or not this is a partial frame
         let partial_frame: u8 = if num_samples == self.frame_size { 0 } else { 1 };
@@ -629,14 +629,14 @@ impl AlacEncoder {
             }
 
             // run the dynamic predictors
-            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
-            dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits, dp::DENSHIFT_DEFAULT);
+            dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits, dp::DENSHIFT_DEFAULT);
 
             // run the lossless compressor on each channel
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
             let ag_params = AgParams::new(ag::MB0, (pb_factor * (ag::PB0)) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
-            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
-            ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits);
+            ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits);
 
             // look for best match
             if work_bits.position() < min_bits {
@@ -678,15 +678,15 @@ impl AlacEncoder {
             let dilate = 32usize;
 
             for _ in 0..8 {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_uv as usize) - 1], num_uv as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
-                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_uv as usize) - 1], num_uv as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples / dilate, &mut coefs_u[(num_uv as usize) - 1], num_uv as usize, chan_bits, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples / dilate, &mut coefs_v[(num_uv as usize) - 1], num_uv as usize, chan_bits, dp::DENSHIFT_DEFAULT);
             }
 
             let dilate = 8usize;
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, (num_samples / dilate) as u32, (num_samples / dilate) as u32);
 
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
-            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_u, &mut work_bits, num_samples / dilate, chan_bits);
             let bits1 = work_bits.position();
 
             if (bits1 * dilate + 16 * num_uv) < min_bits1 {
@@ -695,7 +695,7 @@ impl AlacEncoder {
             }
 
             let mut work_bits = BitBuffer::new(&mut self.work_buffer);
-            ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_v, &mut work_bits, num_samples / dilate, chan_bits);
             let bits2 = work_bits.position();
 
             if (bits2 * dilate + 16 * num_uv) < min_bits2 {
@@ -755,25 +755,25 @@ impl AlacEncoder {
             // - note: to avoid allocating more buffers, we're mixing and matching between the available buffers instead
             //   of only using "U" buffers for the U-channel and "V" buffers for the V-channel
             if mode == 0 {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_u, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits, dp::DENSHIFT_DEFAULT);
             } else {
-                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_v, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
-                dp::pc_block(&self.predictor_v, &mut self.predictor_u, num_samples, &mut [], 31, chan_bits as usize, 0);
+                dp::pc_block(&self.mix_buffer_u, &mut self.predictor_v, num_samples, &mut coefs_u[(num_u as usize) - 1], num_u as usize, chan_bits, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.predictor_v, &mut self.predictor_u, num_samples, &mut [], 31, chan_bits, 0);
             }
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32);
-            ag::dyn_comp(&ag_params, &self.predictor_u, bitstream, num_samples, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_u, bitstream, num_samples, chan_bits);
 
             // run the dynamic predictor and lossless compression for the "right" channel
             if mode == 0 {
-                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_v, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits, dp::DENSHIFT_DEFAULT);
             } else {
-                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_u, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits as usize, dp::DENSHIFT_DEFAULT);
-                dp::pc_block(&self.predictor_u, &mut self.predictor_v, num_samples, &mut [], 31, chan_bits as usize, 0);
+                dp::pc_block(&self.mix_buffer_v, &mut self.predictor_u, num_samples, &mut coefs_v[(num_v as usize) - 1], num_v as usize, chan_bits, dp::DENSHIFT_DEFAULT);
+                dp::pc_block(&self.predictor_u, &mut self.predictor_v, num_samples, &mut [], 31, chan_bits, 0);
             }
 
             let ag_params = AgParams::new(ag::MB0, (pb_factor * ag::PB0) / 4, ag::KB0, num_samples as u32, num_samples as u32);
-            ag::dyn_comp(&ag_params, &self.predictor_v, bitstream, num_samples, chan_bits as usize);
+            ag::dyn_comp(&ag_params, &self.predictor_v, bitstream, num_samples, chan_bits);
 
             // if we happened to create a compressed packet that was actually bigger than an escape packet would be,
             // chuck it and do an escape packet
