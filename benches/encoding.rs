@@ -2,7 +2,7 @@ extern crate std;
 
 use std::fs;
 
-use alac_encoder::{AlacEncoder, FormatDescription, MAX_ESCAPE_HEADER_BYTES};
+use alac_encoder::{AlacEncoder, FormatDescription};
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 fn test_case (input: &[u8], output: &mut [u8], sample_rate: f64, frame_size: u32, channels: u32) {
@@ -23,7 +23,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         const SAMPLE_RATE: f64 = 44100.0;
         const FRAME_SIZE: u32 = 352;
         const CHANNELS: u32 = 2;
-        const BUFFER_SIZE: usize = (FRAME_SIZE as usize * CHANNELS as usize * 2) + MAX_ESCAPE_HEADER_BYTES;
+        const BUFFER_SIZE: usize = FormatDescription::alac(SAMPLE_RATE, FRAME_SIZE, CHANNELS).max_packet_size();
 
         let input = fs::read("fixtures/like-a-rolling-stone.pcm").unwrap();
         let mut output = vec![0u8; BUFFER_SIZE];

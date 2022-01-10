@@ -12,11 +12,12 @@ impl<'a> BitBuffer<'a> {
         self.buffer.len()
     }
 
-    pub fn write_lte25(&mut self, bit_values: u32, num_bits: u32) {
-        assert!(num_bits > 0 && num_bits <= 25);
+    pub fn write_lte25(&mut self, bit_values: u32, num_bits: usize) {
+        debug_assert!(num_bits > 0 && num_bits <= 25);
+        debug_assert!(self.position + num_bits <= self.buffer.len() * 8);
 
-        let target = unsafe { self.buffer.as_mut_ptr().offset((self.position >> 3) as isize) as *mut u32 };
-        let shift = 32 - ((self.position as u32) & 7) - num_bits;
+        let target = unsafe { self.buffer.as_mut_ptr().add(self.position >> 3) as *mut u32 };
+        let shift = 32 - (self.position & 7) - num_bits;
 
         let curr = u32::from_be(unsafe { core::ptr::read_unaligned(target) });
 
@@ -25,13 +26,14 @@ impl<'a> BitBuffer<'a> {
 
         unsafe { core::ptr::write_unaligned(target, main.to_be()); }
 
-        self.position += num_bits as usize;
+        self.position += num_bits;
     }
 
-    pub fn write(&mut self, bit_values: u32, num_bits: u32) {
-        assert!(num_bits > 0 && num_bits <= 32);
+    pub fn write(&mut self, bit_values: u32, num_bits: usize) {
+        debug_assert!(num_bits > 0 && num_bits <= 32);
+        debug_assert!(self.position + num_bits <= self.buffer.len() * 8);
 
-        let target = unsafe { self.buffer.as_mut_ptr().offset((self.position >> 3) as isize) as *mut u32 };
+        let target = unsafe { self.buffer.as_mut_ptr().add(self.position >> 3) as *mut u32 };
         let shift = (32 - ((self.position as i32) & 7) - (num_bits as i32)) as i32;
 
         let curr = u32::from_be(unsafe { core::ptr::read_unaligned(target) });
@@ -39,7 +41,7 @@ impl<'a> BitBuffer<'a> {
         if shift < 0 {
             let mask = (!0u32) >> -shift;
             let main = (bit_values >> -shift) | (curr & !mask);
-            let tail = ((bit_values << ((8 + shift))) & 0xff) as u8;
+            let tail = ((bit_values << (8 + shift)) & 0xff) as u8;
 
             unsafe { core::ptr::write_unaligned(target, main.to_be()); }
             unsafe { core::ptr::write_unaligned(target.offset(1) as *mut u8, tail); }
@@ -50,23 +52,16 @@ impl<'a> BitBuffer<'a> {
             unsafe { core::ptr::write_unaligned(target, main.to_be()); }
         }
 
-        self.position += num_bits as usize;
+        self.position += num_bits;
     }
 
     /// Align bit buffer to next byte boundary, writing zeros if requested
-    pub fn byte_align(&mut self, add_zeros: bool) {
-        let bit = (self.position & 7) as u32;
+    pub fn byte_align(&mut self) {
+        let bit = self.position & 7;
 
         if bit == 0 { return; }
 
-        match add_zeros {
-            true => self.write_lte25(0, 8 - bit),
-            false => self.advance(8 - bit),
-        }
-    }
-
-    pub fn advance(&mut self, num_bits: u32) {
-        self.position += num_bits as usize;
+        self.write_lte25(0, 8 - bit);
     }
 
     pub fn position(&self) -> usize {

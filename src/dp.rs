@@ -26,16 +26,13 @@ impl Signed for i32 {
     }
 }
 
+/// Note: Assumes that the input coefs is already zeroed out
 pub fn init_coefs(coefs: &mut [i16], denshift: u32) {
     let den = 1i32 << denshift;
 
     coefs[0] = ((AINIT * den) >> 4) as i16;
     coefs[1] = ((BINIT * den) >> 4) as i16;
     coefs[2] = ((CINIT * den) >> 4) as i16;
-
-    for index in 3..coefs.len() {
-        coefs[index] = 0;
-    }
 }
 
 pub fn pc_block(input: &[i32], pc1: &mut [i32], num: usize, coefs: &mut [i16], numactive: usize, chanbits: usize, denshift: u32) {
@@ -90,17 +87,17 @@ pub fn pc_block(input: &[i32], pc1: &mut [i32], num: usize, coefs: &mut [i16], n
                     Sign::Positive => {
                         let sgn = b3.signum();
                         a3 -= sgn as i16;
-                        del -= (4 - 3) * ((sgn * b3) >> denshift);
+                        del -= (sgn * b3) >> denshift;
                         if del <= 0 { continue; }
 
                         let sgn = b2.signum();
                         a2 -= sgn as i16;
-                        del -= (4 - 2) * ((sgn * b2) >> denshift);
+                        del -= 2 * ((sgn * b2) >> denshift);
                         if del <= 0 { continue; }
 
                         let sgn = b1.signum();
                         a1 -= sgn as i16;
-                        del -= (4 - 1) * ((sgn * b1) >> denshift);
+                        del -= 3 * ((sgn * b1) >> denshift);
                         if del <= 0 { continue; }
 
                         a0 -= b0.signum() as i16;
@@ -109,17 +106,17 @@ pub fn pc_block(input: &[i32], pc1: &mut [i32], num: usize, coefs: &mut [i16], n
                         // note: to avoid unnecessary negations, we flip the value of "sgn"
                         let sgn = -(b3.signum());
                         a3 -= sgn as i16;
-                        del -= (4 - 3) * ((sgn * b3) >> denshift);
+                        del -= (sgn * b3) >> denshift;
                         if del >= 0 { continue; }
 
                         let sgn = -(b2.signum());
                         a2 -= sgn as i16;
-                        del -= (4 - 2) * ((sgn * b2) >> denshift);
+                        del -= 2 * ((sgn * b2) >> denshift);
                         if del >= 0 { continue; }
 
                         let sgn = -(b1.signum());
                         a1 -= sgn as i16;
-                        del -= (4 - 1) * ((sgn * b1) >> denshift);
+                        del -= 3 * ((sgn * b1) >> denshift);
                         if del >= 0 { continue; }
 
                         a0 += b0.signum() as i16;
@@ -165,7 +162,7 @@ pub fn pc_block(input: &[i32], pc1: &mut [i32], num: usize, coefs: &mut [i16], n
                     Sign::Positive => {
                         let sgn = b7.signum();
                         a7 -= sgn as i16;
-                        del -= 1 * ((sgn * b7) >> denshift);
+                        del -= (sgn * b7) >> denshift;
                         if del <= 0 { continue; }
 
                         let sgn = b6.signum();
@@ -204,7 +201,7 @@ pub fn pc_block(input: &[i32], pc1: &mut [i32], num: usize, coefs: &mut [i16], n
                         // note: to avoid unnecessary negations, we flip the value of "sgn"
                         let sgn = -(b7.signum());
                         a7 -= sgn as i16;
-                        del -= 1 * ((sgn * b7) >> denshift);
+                        del -= (sgn * b7) >> denshift;
                         if del >= 0 { continue; }
 
                         let sgn = -(b6.signum());
