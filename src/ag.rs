@@ -67,7 +67,7 @@ fn dyn_code(bitstream: &mut BitBuffer, m: u32, k: u32, n: u32) {
 
         // use this result if coding this way is smaller than doing escape
         if num_bits <= (MAX_PREFIX_16 + MAX_DATATYPE_BITS_16) {
-            bitstream.write_lte25(value, num_bits as usize);
+            bitstream.write(value, num_bits as usize);
             return;
         }
     }
@@ -75,7 +75,7 @@ fn dyn_code(bitstream: &mut BitBuffer, m: u32, k: u32, n: u32) {
     let num_bits = MAX_PREFIX_16 + MAX_DATATYPE_BITS_16;
     let value = (((1 << MAX_PREFIX_16) - 1) << MAX_DATATYPE_BITS_16) + n;
 
-    bitstream.write_lte25(value, num_bits as usize);
+    bitstream.write(value, num_bits as usize);
 }
 
 #[inline(always)]
@@ -90,12 +90,12 @@ fn dyn_code_32bit(bitstream: &mut BitBuffer, maxbits: usize, m: u32, k: u32, n: 
         let value = (((1<<division)-1)<<(num_bits-division)) + modulo + 1 - de;
 
         if num_bits <= 25 {
-            bitstream.write_lte25(value, num_bits as usize);
+            bitstream.write(value, num_bits as usize);
             return;
         }
     }
 
-    bitstream.write_lte25((1 << MAX_PREFIX_32) - 1, MAX_PREFIX_32 as usize);
+    bitstream.write((1 << MAX_PREFIX_32) - 1, MAX_PREFIX_32 as usize);
     bitstream.write(n, maxbits);
 }
 

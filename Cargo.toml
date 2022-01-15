@@ -20,6 +20,7 @@ criterion = "^0.3.5"
 serde = { version = "^1.0.90", features = ["derive"] }
 
 [dependencies]
+bitvec = { version = "^1.0.0", default-features = false, features = ["alloc"] }
 log = "^0.4.14"
 
 [[bench]]

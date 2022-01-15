@@ -311,11 +311,11 @@ impl AlacEncoder {
         while channel_index < input_format.channels_per_frame {
             let tag = CHANNEL_MAPS[input_format.channels_per_frame as usize - 1][channel_index as usize].unwrap();
 
-            bitstream.write_lte25(tag as u32, 3);
+            bitstream.write(tag as u32, 3);
 
             match tag {
                 ElementType::Sce => {
-                    bitstream.write_lte25(mono_element_tag, 4);
+                    bitstream.write(mono_element_tag, 4);
                     let input_size = input_increment;
                     self.encode_mono(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames);
                     input_position += input_size;
@@ -323,7 +323,7 @@ impl AlacEncoder {
                     mono_element_tag += 1;
                 },
                 ElementType::Cpe => {
-                    bitstream.write_lte25(stereo_element_tag, 4);
+                    bitstream.write(stereo_element_tag, 4);
                     let input_size = input_increment * 2;
                     self.encode_stereo(&mut bitstream, &input_data[input_position..], input_format.channels_per_frame as usize, channel_index as usize, num_frames);
                     input_position += input_size;
@@ -335,7 +335,7 @@ impl AlacEncoder {
         }
 
         // add 3-bit frame end tag: ID_END
-        bitstream.write_lte25(ElementType::End as u32, 3);
+        bitstream.write(ElementType::End as u32, 3);
 
         // byte-align the output data
         bitstream.byte_align();
@@ -443,19 +443,19 @@ impl AlacEncoder {
 
         if !do_escape {
             // write bitstream header
-            bitstream.write_lte25(0, 12);
-            bitstream.write_lte25(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
+            bitstream.write(0, 12);
+            bitstream.write(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
             if partial_frame > 0 {
                 bitstream.write(num_samples as u32, 32);
             }
-            bitstream.write_lte25(0, 16); // mixBits = mixRes = 0
+            bitstream.write(0, 16); // mixBits = mixRes = 0
 
             // write the params and predictor coefs
             let mode_u = 0;
-            bitstream.write_lte25((mode_u << 4) | dp::DENSHIFT_DEFAULT, 8);
-            bitstream.write_lte25(((pb_factor as u32) << 5) | (best_u as u32), 8);
+            bitstream.write((mode_u << 4) | dp::DENSHIFT_DEFAULT, 8);
+            bitstream.write(((pb_factor as u32) << 5) | (best_u as u32), 8);
             for index in 0..best_u {
-                bitstream.write_lte25(coefs_u[(best_u as usize) - 1][index] as u32, 16);
+                bitstream.write(coefs_u[(best_u as usize) - 1][index] as u32, 16);
             }
 
             // if shift active, write the interleaved shift buffers
@@ -484,8 +484,8 @@ impl AlacEncoder {
 
         if do_escape {
             // write bitstream header and coefs
-            bitstream.write_lte25(0, 12);
-            bitstream.write_lte25(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
+            bitstream.write(0, 12);
+            bitstream.write(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
             if partial_frame > 0 {
                 bitstream.write(num_samples as u32, 32);
             }
@@ -495,21 +495,21 @@ impl AlacEncoder {
                 16 => {
                     let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
                     for index in (0..(num_samples * stride)).step_by(stride) {
-                        bitstream.write_lte25(input16[index] as u32, 16);
+                        bitstream.write(input16[index] as u32, 16);
                     }
                 },
                 20 => {
                     // convert 20-bit data to 32-bit for simplicity
                     matrix::copy20_to_predictor(input, stride, &mut self.mix_buffer_u, num_samples);
                     for index in 0..num_samples {
-                        bitstream.write_lte25(self.mix_buffer_u[index] as u32, 20);
+                        bitstream.write(self.mix_buffer_u[index] as u32, 20);
                     }
                 },
                 24 => {
                     // convert 24-bit data to 32-bit for simplicity
                     matrix::copy24_to_predictor(input, stride, &mut self.mix_buffer_u, num_samples);
                     for index in 0..num_samples {
-                        bitstream.write_lte25(self.mix_buffer_u[index] as u32, 24);
+                        bitstream.write(self.mix_buffer_u[index] as u32, 24);
                     }
                 },
                 32 => {
@@ -528,8 +528,8 @@ impl AlacEncoder {
         let partial_frame: u8 = if num_samples == self.frame_size { 0 } else { 1 };
 
         // write bitstream header
-        bitstream.write_lte25(0, 12);
-        bitstream.write_lte25(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
+        bitstream.write(0, 12);
+        bitstream.write(((partial_frame as u32) << 3) | 1, 4); // LSB = 1 means "frame not compressed"
         if partial_frame > 0 {
             bitstream.write(num_samples as u32, 32);
         }
@@ -540,24 +540,24 @@ impl AlacEncoder {
                 let input16 = unsafe { core::slice::from_raw_parts(input.as_ptr() as *const i16, num_samples * stride) };
 
                 for index in (0..(num_samples * stride)).step_by(stride) {
-                    bitstream.write_lte25(input16[index] as u32, 16);
-                    bitstream.write_lte25(input16[index + 1] as u32, 16);
+                    bitstream.write(input16[index] as u32, 16);
+                    bitstream.write(input16[index + 1] as u32, 16);
                 }
             },
             20 => {
                 // mix20() with mixres param = 0 means de-interleave so use it to simplify things
                 matrix::mix20(Source { data: input, stride, num_samples }, &mut self.mix_buffer_u, &mut self.mix_buffer_v, 0, 0);
                 for index in 0..num_samples {
-                    bitstream.write_lte25(self.mix_buffer_u[index] as u32, 20);
-                    bitstream.write_lte25(self.mix_buffer_v[index] as u32, 20);
+                    bitstream.write(self.mix_buffer_u[index] as u32, 20);
+                    bitstream.write(self.mix_buffer_v[index] as u32, 20);
                 }
             },
             24 => {
                 // mix24() with mixres param = 0 means de-interleave so use it to simplify things
                 matrix::mix24(Source { data: input, stride, num_samples }, &mut self.mix_buffer_u, &mut self.mix_buffer_v, 0, 0, &mut self.shift_buffer_uv, 0);
                 for index in 0..num_samples {
-                    bitstream.write_lte25(self.mix_buffer_u[index] as u32, 24);
-                    bitstream.write_lte25(self.mix_buffer_v[index] as u32, 24);
+                    bitstream.write(self.mix_buffer_u[index] as u32, 24);
+                    bitstream.write(self.mix_buffer_v[index] as u32, 24);
                 }
             },
             32 => {
@@ -716,28 +716,28 @@ impl AlacEncoder {
 
         if !do_escape {
             // write bitstream header and coefs
-            bitstream.write_lte25(0, 12);
-            bitstream.write_lte25(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
+            bitstream.write(0, 12);
+            bitstream.write(((partial_frame as u32) << 3) | ((bytes_shifted as u32) << 1), 4);
             if partial_frame > 0 {
                 bitstream.write(num_samples as u32, 32);
             }
-            bitstream.write_lte25(mix_bits as u32, 8);
-            bitstream.write_lte25(mix_res as u32, 8);
+            bitstream.write(mix_bits as u32, 8);
+            bitstream.write(mix_res as u32, 8);
 
             debug_assert!((mode < 16) && (dp::DENSHIFT_DEFAULT < 16));
             debug_assert!((pb_factor < 8) && (num_u < 32));
             debug_assert!((pb_factor < 8) && (num_v < 32));
 
-            bitstream.write_lte25((mode << 4) | dp::DENSHIFT_DEFAULT, 8);
-            bitstream.write_lte25((pb_factor << 5) | (num_u as u32), 8);
+            bitstream.write((mode << 4) | dp::DENSHIFT_DEFAULT, 8);
+            bitstream.write((pb_factor << 5) | (num_u as u32), 8);
             for index in 0..num_u {
-                bitstream.write_lte25(coefs_u[(num_u as usize) - 1][index as usize] as u32, 16);
+                bitstream.write(coefs_u[(num_u as usize) - 1][index as usize] as u32, 16);
             }
 
-            bitstream.write_lte25((mode << 4) | dp::DENSHIFT_DEFAULT, 8);
-            bitstream.write_lte25((pb_factor << 5) | (num_v as u32), 8);
+            bitstream.write((mode << 4) | dp::DENSHIFT_DEFAULT, 8);
+            bitstream.write((pb_factor << 5) | (num_v as u32), 8);
             for index in 0..num_v {
-                bitstream.write_lte25(coefs_v[(num_v as usize) - 1][index as usize] as u32, 16);
+                bitstream.write(coefs_v[(num_v as usize) - 1][index as usize] as u32, 16);
             }
 
             // if shift active, write the interleaved shift buffers
