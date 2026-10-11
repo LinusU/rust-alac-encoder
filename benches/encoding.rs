@@ -6,8 +6,8 @@ use alac_encoder::{AlacEncoder, FormatDescription};
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 fn test_case (input: &[u8], output: &mut [u8], sample_rate: f64, frame_size: u32, channels: u32) {
-    let input_format = FormatDescription::pcm::<i16>(sample_rate, channels);
-    let output_format = FormatDescription::alac(sample_rate, frame_size, channels);
+    let input_format = FormatDescription::pcm(sample_rate, channels, 16);
+    let output_format = FormatDescription::alac(sample_rate, frame_size, channels, 16);
 
     let mut encoder = AlacEncoder::new(&output_format);
 
@@ -23,7 +23,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         const SAMPLE_RATE: f64 = 44100.0;
         const FRAME_SIZE: u32 = 352;
         const CHANNELS: u32 = 2;
-        const BUFFER_SIZE: usize = FormatDescription::alac(SAMPLE_RATE, FRAME_SIZE, CHANNELS).max_packet_size();
+        const BUFFER_SIZE: usize = FormatDescription::alac(SAMPLE_RATE, FRAME_SIZE, CHANNELS, 16).max_packet_size();
 
         let input = fs::read("fixtures/like-a-rolling-stone.pcm").unwrap();
         let mut output = vec![0u8; BUFFER_SIZE];

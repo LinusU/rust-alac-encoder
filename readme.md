@@ -11,17 +11,22 @@ This crate works with Cargo and is on [crates.io](https://crates.io/crates/alac-
 ```rust
 use alac_encoder::{AlacEncoder, FormatDescription};
 
-// Specify the input format as signed 16-bit raw PCM, 44100 Hz & 2 channels
-let input_format = FormatDescription::pcm::<i16>(44100.0, 2);
+// Specify the input format as signed 16-bit raw PCM, 44100 Hz & 2 channels.
+// Interleaved, little-endian, packed at the stated width with no padding byte.
+let input_format = FormatDescription::pcm(44100.0, 2, 16);
 
-// Specify the output format as 44100 Hz ALAC with a frame size of 4096 & 2 channels
-let output_format = FormatDescription::alac(44100.0, 4096, 2);
+// Specify the output format as 44100 Hz ALAC with a frame size of 4096 & 2
+// channels. The width must match the input's: see SUPPORTED_BIT_DEPTHS for
+// what may go here.
+let output_format = FormatDescription::alac(44100.0, 4096, 2, 16);
 
 // Initialize the encoder
 let mut encoder = AlacEncoder::new(&output_format);
 
-// Allocate a buffer for the encoder to write chunks to.
-let mut output = vec![0u8; output_format.max_packet_size()];
+// Allocate a buffer for the encoder to write chunks to. A few bytes of slack
+// past max_packet_size(): a write near the end of a packet can put down four
+// bytes when fewer remain.
+let mut output = vec![0u8; output_format.max_packet_size() + 4];
 
 // Get a hold of the source data, e.g. from a file
 let pcm = fs::read("foobar.pcm").unwrap();

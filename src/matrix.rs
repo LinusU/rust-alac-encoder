@@ -13,6 +13,12 @@
 // L = u + v - [rV/m];
 // R = L - v;
 
+// Every read of `input` here is little-endian, at all four widths. The 20- and
+// 24-bit reads used to be `from_be_bytes` while the 16- and 32-bit reads beside
+// them were `from_le_bytes`, which gave the crate two input contracts chosen by
+// sample width. Nothing caught it because 16 was the only width a caller could
+// construct, so the three-byte paths were unreachable.
+
 pub struct Source<'a> {
     pub data: &'a [u8],
     pub stride: usize,
@@ -48,8 +54,8 @@ pub fn mix20(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
         let m2: i32 = modulo - mixres;
 
         for j in 0..input.num_samples {
-            let l = (i32::from_be_bytes([0, input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2]]) << 8) >> 12;
-            let r = (i32::from_be_bytes([0, input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5]]) << 8) >> 12;
+            let l = (i32::from_le_bytes([input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2], 0]) << 8) >> 12;
+            let r = (i32::from_le_bytes([input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5], 0]) << 8) >> 12;
 
             u[j] = (mixres * l + m2 * r) >> mixbits;
             v[j] = l - r;
@@ -57,8 +63,8 @@ pub fn mix20(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
     } else {
         /* Conventional separated stereo. */
         for j in 0..input.num_samples {
-            u[j] = (i32::from_be_bytes([0, input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2]]) << 8) >> 12;
-            v[j] = (i32::from_be_bytes([0, input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5]]) << 8) >> 12;
+            u[j] = (i32::from_le_bytes([input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2], 0]) << 8) >> 12;
+            v[j] = (i32::from_le_bytes([input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5], 0]) << 8) >> 12;
         }
     }
 }
@@ -79,8 +85,8 @@ pub fn mix24(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
 
         if bytes_shifted != 0 {
             for j in 0..input.num_samples {
-                let l = (i32::from_be_bytes([0, input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2]]) << 8) >> 8;
-                let r = (i32::from_be_bytes([0, input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5]]) << 8) >> 8;
+                let l = (i32::from_le_bytes([input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2], 0]) << 8) >> 8;
+                let r = (i32::from_le_bytes([input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5], 0]) << 8) >> 8;
 
                 shift_uv[j * 2] = ((l as u32) & mask) as u16;
                 shift_uv[j * 2 + 1] = ((r as u32) & mask) as u16;
@@ -93,8 +99,8 @@ pub fn mix24(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
             }
         } else {
             for j in 0..input.num_samples {
-                let l = (i32::from_be_bytes([0, input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2]]) << 8) >> 8;
-                let r = (i32::from_be_bytes([0, input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5]]) << 8) >> 8;
+                let l = (i32::from_le_bytes([input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2], 0]) << 8) >> 8;
+                let r = (i32::from_le_bytes([input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5], 0]) << 8) >> 8;
 
                 u[j] = (mixres * l + m2 * r) >> mixbits;
                 v[j] = l - r;
@@ -104,8 +110,8 @@ pub fn mix24(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
         /* Conventional separated stereo. */
         if bytes_shifted != 0 {
             for j in 0..input.num_samples {
-                let l = (i32::from_be_bytes([0, input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2]]) << 8) >> 8;
-                let r = (i32::from_be_bytes([0, input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5]]) << 8) >> 8;
+                let l = (i32::from_le_bytes([input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2], 0]) << 8) >> 8;
+                let r = (i32::from_le_bytes([input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5], 0]) << 8) >> 8;
 
                 shift_uv[j * 2] = ((l as u32) & mask) as u16;
                 shift_uv[j * 2 + 1] = ((r as u32) & mask) as u16;
@@ -115,8 +121,8 @@ pub fn mix24(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
             }
         } else {
             for j in 0..input.num_samples {
-                u[j] = (i32::from_be_bytes([0, input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2]]) << 8) >> 8;
-                v[j] = (i32::from_be_bytes([0, input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5]]) << 8) >> 8;
+                u[j] = (i32::from_le_bytes([input.data[j * input.stride * 3], input.data[j * input.stride * 3 + 1], input.data[j * input.stride * 3 + 2], 0]) << 8) >> 8;
+                v[j] = (i32::from_le_bytes([input.data[j * input.stride * 3 + 3], input.data[j * input.stride * 3 + 4], input.data[j * input.stride * 3 + 5], 0]) << 8) >> 8;
             }
         }
     }
@@ -178,14 +184,14 @@ pub fn mix32(input: Source, u: &mut [i32], v: &mut [i32], mixbits: i32, mixres: 
 pub fn copy20_to_predictor(input: &[u8], stride: usize, output: &mut [i32], num_samples: usize) {
     for j in 0..num_samples {
         // 20-bit values are left-aligned in the 24-bit input buffer but right-aligned in the 32-bit output buffer
-        let val = i32::from_be_bytes([0, input[j * stride * 3], input[j * stride * 3 + 1], input[j * stride * 3 + 2]]);
+        let val = i32::from_le_bytes([input[j * stride * 3], input[j * stride * 3 + 1], input[j * stride * 3 + 2], 0]);
         output[j] = (val << 8) >> 12;
     }
 }
 
 pub fn copy24_to_predictor(input: &[u8], stride: usize, output: &mut [i32], num_samples: usize) {
     for j in 0..num_samples {
-        let val = i32::from_be_bytes([0, input[j * stride * 3], input[j * stride * 3 + 1], input[j * stride * 3 + 2]]);
+        let val = i32::from_le_bytes([input[j * stride * 3], input[j * stride * 3 + 1], input[j * stride * 3 + 2], 0]);
         output[j] = (val << 8) >> 8;
     }
 }

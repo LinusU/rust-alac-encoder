@@ -19,6 +19,13 @@ bincode = "^1.1.3"
 criterion = "^0.3.5"
 serde = { version = "^1.0.90", features = ["derive"] }
 
+# For tests/round_trip.rs, which decodes this encoder's output with a decoder
+# that is not this crate. Dev-only, so it does not reach anyone depending on
+# the library, but it does raise the Rust version needed to run `cargo test`
+# above the `rust-version` above.
+symphonia-codec-alac = { version = "^0.6", default-features = false }
+symphonia-core = { version = "^0.6", default-features = false }
+
 [dependencies]
 log = "^0.4.14"
 
